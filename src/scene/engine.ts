@@ -793,9 +793,10 @@ export function createForest(o: Opts) {
       return [HERO.x + (-size.W / 2 + toPx(m)) * sd * K0 - 8 * k, HERO.y - (size.H / 2 - toPx(m)) * sd * K0 + (b.h - 8) * k];
     }, 'none');
     // the words beside the computer: written right on the old notice board where it has room beside the
-    // computer; elsewhere (phones, squarish windows) they float over the dark of the canopy
+    // computer; on other wide screens they float high on the right, over the canopy. On phones and tall windows
+    // only the project's links show, as buttons at the bottom of the page
     buildNotice();
-    if (notice.on) {
+    if (notice.on || !size.wide) {
       if (boards.work) {
         boardScene.remove(boards.work.mesh);
         (boards.work.mesh.material.uniforms.map.value as THREE.Texture).dispose();
@@ -804,15 +805,12 @@ export function createForest(o: Opts) {
       return;
     }
     const wd = 4.6;
-    const wide = size.wide;
-    const ww = wide ? Math.min(470, size.cssW * 0.34) : size.cssW - 40;
+    const ww = Math.min(470, size.cssW * 0.34);
     const base = Math.min(1, Math.max(0.68, size.cssW / 760));
     hang('work', (fit) => workParas(base * fit), ww, wd, CLEARING.camZ - wd, () => {
       const k = perCss(wd);
-      const b = boards.work.art;
       // high on the right, so the links never sit behind a disc
-      if (wide) return [size.restX + size.W * 0.1 * wd * K0 - 60 * k, CLEARING.camY + size.H * 0.3 * wd * K0 + 60 * k];
-      return [size.restX - (b.w / 2) * k, CLEARING.camY + (size.H / 2 - toPx(16)) * wd * K0 + 50 * k];
+      return [size.restX + size.W * 0.1 * wd * K0 - 60 * k, CLEARING.camY + size.H * 0.3 * wd * K0 + 60 * k];
     });
   }
 
@@ -863,9 +861,12 @@ export function createForest(o: Opts) {
     const from = size.W * 0.07;
     const avail = size.W * 0.5 - from - 6;
     // pill mode always has the board standing in the clearing, to read and to shoot
+    const was = notice.on;
     notice.on = playing || (size.wide && avail >= 168);
     if (!notice.on) {
       if (notice.sharp) notice.sharp.visible = false;
+      // the page's links over its buttons go with it
+      if (was) for (const el of document.querySelectorAll<HTMLElement>('[data-pin^="work-link"]')) pin(el, 0, 0, 0, 0, 0, false);
       return;
     }
     const bw = Math.round(Math.min(196, avail - 14));
@@ -1004,7 +1005,7 @@ export function createForest(o: Opts) {
       else delete buttonState[id];
       if (next === 'press') pressedAt[id] = performance.now();
       // the socials hang on their own board even where the work's words are on the notice board
-      if (boards.socials || boards.work) hangAll();
+      if (boards.socials) hangAll();
     };
     // a quick click still shows the button going down: it stays pressed a moment, however short the click
     const held = performance.now() - (pressedAt[id] ?? -1e9);
@@ -1134,11 +1135,13 @@ export function createForest(o: Opts) {
 
   function measure() {
     const work = document.querySelector<HTMLElement>('[data-stage="work"]');
-    const vh = window.innerHeight;
-    const max = document.documentElement.scrollHeight - vh;
+    // the clearing's stay is measured in the page's own screens (svh, the sticky's height): innerHeight grows as a
+    // phone's address bar slides away, and that made the stay vanish, so the walk ran straight on past the computer
+    const screen = work?.querySelector<HTMLElement>('.work-stick')?.offsetHeight || window.innerHeight;
+    const max = document.documentElement.scrollHeight - window.innerHeight;
     if (work) {
       stages.a = work.offsetTop;
-      stages.b = work.offsetTop + work.offsetHeight - vh;
+      stages.b = work.offsetTop + work.offsetHeight - screen;
     }
     stages.c = Math.max(stages.b + 1, max);
   }
@@ -1224,7 +1227,7 @@ export function createForest(o: Opts) {
     placeClearing();
     measure();
     if (text) buildText();
-    if (boards.work) hangAll();
+    if (boards.socials) hangAll();
   }
 
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1393,6 +1396,10 @@ export function createForest(o: Opts) {
     const layer = $('discs');
     const active = atClearing ? 'true' : 'false';
     if (layer && layer.dataset.active !== active) layer.dataset.active = active;
+    // on phones and tall windows, the picked project's links wait at the bottom of the screen
+    const bar = $('work-bar');
+    const barOn = atClearing && !size.wide && st.selected !== null ? 'true' : 'false';
+    if (bar && bar.dataset.show !== barOn) bar.dataset.show = barOn;
     discs.forEach((d, i) => {
       if (!d) return;
       const b = $(`[data-disc="${i}"]`);
@@ -2667,12 +2674,16 @@ export function createForest(o: Opts) {
     let at: THREE.Vector3;
     if (playing) at = updatePlayer(dt);
     else {
-      const target = cameraAt(s);
-      atClearing = Math.abs(target.z - CLEARING.camZ) < 0.6;
+      let target = cameraAt(s);
       // walking down into the clearing, the rest of the flick is caught there (never on the way back)
       const from = lastScroll;
       lastScroll = s;
-      if (ready && o.hold && from < stages.a && s >= stages.a && o.hold(stages.a)) lastScroll = stages.a;
+      if (ready && o.hold && from < stages.a && s >= stages.a && o.hold(stages.a)) {
+        // a fast fling is already past the computer this frame: aim for where it was caught
+        lastScroll = stages.a;
+        target = cameraAt(stages.a);
+      }
+      atClearing = Math.abs(target.z - CLEARING.camZ) < 0.6;
       at = follow(target, dt, !(Math.abs(s - from) < window.innerHeight * 1.5));
       // the board bursting gives the view a short, dying jolt
       if (notice.shake > 0) {
@@ -2780,7 +2791,7 @@ export function createForest(o: Opts) {
   function tryReady() {
     // the meadow's two painters are enough: the clearing and the hollow finish behind the first view
     const hero = doneGroups.has(0) && doneGroups.has(1);
-    if (!ready && hero && planted && (text || textGaveUp) && (boards.work || notice.mesh || textGaveUp)) markReady();
+    if (!ready && hero && planted && (text || textGaveUp) && (boards.socials || notice.mesh || textGaveUp)) markReady();
   }
 
   /** Compiles every shader and allocates every render target up front, so scrolling never waits on the GPU. */
@@ -2801,6 +2812,8 @@ export function createForest(o: Opts) {
     if (ready) return;
     ready = true;
     document.documentElement.style.setProperty('--load', '1');
+    // the page has settled by now (a phone may have shown it zoomed out while it loaded)
+    measure();
     readyAt = forestNow();
     o.onReady();
   }
@@ -2870,6 +2883,7 @@ export function createForest(o: Opts) {
   }
   const onLayout = () => measure();
   window.addEventListener('resize', onLayout);
+  window.visualViewport?.addEventListener('resize', onLayout);
   resize();
   tick();
   if (process.env.NODE_ENV !== 'production') Object.assign(window, { __forest: { camera, stages, size, scene, layers, fog: fog.material.uniforms, light, atmos, renderer, main, fogged, P, store: forest, notice, critters, play: () => ({ playing, score, controls, aim: () => aim(P.pitch + P.kick), solids }) } });
@@ -2884,6 +2898,7 @@ export function createForest(o: Opts) {
       painterInbox.listener = null;
       ro.disconnect();
       window.removeEventListener('resize', onLayout);
+      window.visualViewport?.removeEventListener('resize', onLayout);
       document.removeEventListener('pointerover', onOver);
       document.removeEventListener('pointerout', onOut);
       document.removeEventListener('pointerdown', onDown);

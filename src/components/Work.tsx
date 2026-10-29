@@ -10,7 +10,7 @@ const get = forest.get;
 /**
  * The clearing. The discs, the computer and the man are drawn by the forest; this is everything laid
  * over them (moved into place every frame): buttons on the discs with their labels, the project video
- * on the monitor's glass, the photo the man wears as a mask, and the words.
+ * on the monitor's glass, the photo the man wears as a mask, and the words (or, on phones, only the links).
  */
 export default function Work() {
   const state = useSyncExternalStore(subscribe, get, get);
@@ -52,6 +52,15 @@ export default function Work() {
           )}
         </div>
       </div>
+
+      {/* where there's no room for the notice board (phones, squarish windows): just the links, at the bottom */}
+      <p id="work-bar" className="work-bar" data-show="false">
+        {shown?.links.map((l) => (
+          <a key={l.href} href={l.href} target="_blank" rel="noreferrer" className="pixel-btn" aria-label={`${shown.title}: ${l.label}`}>
+            {l.label}
+          </a>
+        ))}
+      </p>
 
       <div id="discs" className="discs" data-active="false">
         {projects.map((p, i) => (

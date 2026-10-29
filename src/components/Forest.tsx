@@ -15,11 +15,25 @@ export default function Forest() {
     if (!c) return;
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const lenis = reduced ? null : new Lenis({ autoRaf: true, lerp: 0.09, wheelMultiplier: 0.9 });
+    // fingers on the glass, and when the last one left: a touch scroll and its fling are the browser's own
+    let fingers = 0;
+    let lifted = -Infinity;
+    const onFinger = (e: TouchEvent) => {
+      fingers = e.touches.length;
+      if (!fingers) lifted = performance.now();
+    };
+    for (const t of ['touchstart', 'touchend', 'touchcancel'] as const) window.addEventListener(t, onFinger, { passive: true });
     // the clearing catches a wheel flick: the dying rest of it is swallowed (a trackpad keeps sending it for a
-    // while), but only briefly, and a fresh push goes on at once
+    // while), but only briefly, and a fresh push goes on at once. A finger's swipe or fling is caught the same way:
+    // held while that finger stays down, and a fresh touch goes on at once
     let release: (() => void) | null = null;
     const hold = (to: number) => {
-      if (!lenis || lenis.isScrolling !== 'smooth' || release) return false;
+      if (!lenis || release) return false;
+      const touch = lenis.isScrolling === 'native' && (fingers > 0 || performance.now() - lifted < 4000);
+      if (lenis.isScrolling !== 'smooth' && !touch) return false;
+      const root = document.documentElement;
+      // a fling only ends if the page can't scroll for a moment
+      if (touch) root.dataset.caught = '';
       lenis.scrollTo(to, { immediate: true, force: true });
       lenis.stop();
       const since = performance.now();
@@ -33,19 +47,27 @@ export default function Forest() {
         prev = d;
         last = now;
       };
+      // the finger that was caught has left the glass, so the next touch is a new one
+      let gone = false;
+      const press = () => gone && release?.();
       let frame = 0;
       const check = () => {
         const now = performance.now();
-        if (now - since < 650 && (now - since < 180 || now - last < 90)) frame = requestAnimationFrame(check);
+        if (!fingers) gone = true;
+        const held = touch ? !gone || now - since < 400 : now - since < 650 && (now - since < 180 || now - last < 90);
+        if (held) frame = requestAnimationFrame(check);
         else release?.();
       };
       release = () => {
         cancelAnimationFrame(frame);
         window.removeEventListener('wheel', note);
+        window.removeEventListener('touchstart', press);
+        delete root.dataset.caught;
         release = null;
         lenis.start();
       };
       window.addEventListener('wheel', note, { passive: true });
+      window.addEventListener('touchstart', press, { passive: true });
       frame = requestAnimationFrame(check);
       return true;
     };
@@ -93,6 +115,7 @@ export default function Forest() {
     window.addEventListener('load', remeasure);
     return () => {
       window.removeEventListener('load', remeasure);
+      for (const t of ['touchstart', 'touchend', 'touchcancel'] as const) window.removeEventListener(t, onFinger);
       release?.();
       unplay();
       engine?.dispose();

@@ -22,6 +22,8 @@ old computer and the project discs, the cat's hollow (footer). Next.js 16, vanil
 - Words in the forest (`src/scene/boards.ts`): the hero socials and the project panel are painted sharp and hung in 3D, drawn
   in a full-resolution pass after the pixels, depth-tested against the forest. The page's real links (`data-pin`) ride on top.
   The disc names are painted on each floppy's label in the same pass. The footer is plain page text.
+  On phones and tall windows (`!size.wide`) there are no words by the computer: the picked project's links are page
+  pixel buttons at the bottom of the screen (`#work-bar`, shown by the engine while you rest at the clearing).
 - Page elements pinned over the forest each frame: disc buttons and the project video on the monitor's glass.
 - Pill mode (`src/scene/play.ts`, `world.ts`, `art/gear.ts`): a second after you reach the cat she holds out a paw with a
   pill ("Stay a while?" + Take, `components/Pill.tsx`). Take dissolves you into the meadow where the walk starts, free to
@@ -64,7 +66,9 @@ old computer and the project discs, the cat's hollow (footer). Next.js 16, vanil
 - "ryhox" is dressed with small posies on the letters themselves (`art/garland.ts`), not bushes beside the word.
 - Social icons: each brand's real mark, flat cream on a dark disc (`content/icons.ts`), like a clean pixel logo.
 - Scrolling down into the clearing catches you softly (the camera rides a spring and bounces a little); the very next
-  scroll goes on at once. Scrolling back up never catches.
+  scroll goes on at once. Scrolling back up never catches. A finger's swipe or fling is caught too (next touch goes on).
+- On mobile, no 3D project text in the clearing: just Visit/Source buttons at the bottom.
+- Nothing in the page may be wider than the screen (a phone then loads zoomed out and the walk is measured wrong).
 
 ## Scripts
 - `npm run dev`, `npm run build`, `npm run lint` (tsc).

@@ -85,6 +85,13 @@ main,
   position: relative;
 }
 
+/* nothing in the page may reach past the screen's edge (the soft dark behind the clearing's words, the links the
+   forest moves before it takes them over): on a phone that made the page wider than the screen, so it loaded
+   zoomed out and the forest measured the walk wrong */
+main {
+  overflow-x: clip;
+}
+
 /* hero */
 .hero {
   position: relative;
@@ -569,6 +576,40 @@ html[data-forest] .loader {
 .discs button[data-show='false'] {
   visibility: hidden;
   pointer-events: none;
+}
+
+/* phones and squarish windows, where the notice board has no room: the picked project's links, at the bottom */
+.work-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: max(22px, calc(env(safe-area-inset-bottom) + 12px));
+  z-index: 3;
+  display: flex;
+  justify-content: center;
+  gap: 18px;
+  margin: 0;
+  pointer-events: none;
+  transition: opacity 0.4s steps(4), visibility 0s;
+}
+
+.work-bar a {
+  pointer-events: auto;
+}
+
+.work-bar[data-show='false'] {
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity 0.2s steps(2), visibility 0s 0.2s;
+}
+
+html:not([data-forest='ready']) .work-bar {
+  display: none;
+}
+
+/* a finger's fling into the clearing is caught there: the page stops scrolling for a moment, which ends it */
+html[data-caught] {
+  overflow: hidden;
 }
 
 /* narrow screens: the words go up over the dark of the canopy, clear of the discs */
