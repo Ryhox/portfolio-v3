@@ -746,3 +746,281 @@ html[data-forest='ready'] :is(.hero-socials, .work-text) * {
 .end-socials {
   gap: 14px 16px;
 }
+
+/* a quick click still shows the press: it goes down at once and comes back up a beat later */
+.pixel-btn:active {
+  transition: none;
+}
+
+/* the cat's offer: a line over the pill on her paw, the Take button under it (moved there every frame) */
+.pill-say,
+.pill-take {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  transition: opacity 0.4s steps(4), visibility 0s;
+}
+
+.pill-say {
+  margin: 0;
+  translate: 0 -100%;
+  pointer-events: none;
+  white-space: nowrap;
+  font-family: var(--display);
+  font-style: italic;
+  font-size: clamp(1rem, 1.5vw, 1.3rem);
+  font-variation-settings: 'SOFT' 100, 'opsz' 24;
+  color: var(--leaf);
+}
+
+.pill-take {
+  margin: 0;
+}
+
+.pill-say[data-show='false'],
+.pill-take[data-show='false'] {
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s steps(2), visibility 0s 0.2s;
+}
+
+/* pill mode: the page steps aside and the wood is yours */
+html[data-play] {
+  overflow: hidden;
+}
+
+html[data-play] main,
+html[data-play] .end {
+  visibility: hidden;
+}
+
+html[data-play] .forest {
+  pointer-events: auto;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+html[data-play][data-paused] .forest {
+  filter: brightness(0.5) saturate(0.85);
+}
+
+.play-ui {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  color: var(--cream);
+}
+
+.play-ui button {
+  pointer-events: auto;
+}
+
+.play-wake.pixel-btn {
+  position: absolute;
+  top: max(14px, env(safe-area-inset-top));
+  left: 14px;
+}
+
+.play-pause {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 0.8rem;
+  padding: 16px;
+  text-align: center;
+}
+
+.play-title {
+  margin: 0;
+  font-family: var(--display);
+  font-style: italic;
+  font-size: clamp(1.7rem, 4vw, 2.8rem);
+  font-variation-settings: 'SOFT' 100, 'opsz' 72;
+}
+
+.play-keys {
+  margin: 0;
+  font-family: var(--font-pixel), monospace;
+  font-size: 0.95rem;
+  color: var(--leaf);
+}
+
+.play-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 0.7rem;
+}
+
+.play-hint {
+  position: absolute;
+  left: 50%;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  translate: -50% 0;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  margin: 0;
+  text-align: center;
+  font-family: var(--font-pixel), monospace;
+  font-size: 0.9rem;
+  text-shadow: 0 2px #1a1410;
+  animation: hint-out 0.6s steps(4) 5s both;
+}
+
+@keyframes hint-out {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
+/* what E does here, just under the middle of the view */
+.play-prompt {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 34px);
+  translate: -50% 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+  font-family: var(--font-pixel), monospace;
+  font-size: 1rem;
+  color: var(--cream);
+  text-shadow: 0 2px #1a1410;
+}
+
+.play-prompt kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.6em;
+  height: 1.6em;
+  font: inherit;
+  color: #fffbea;
+  background: #94bc72;
+  box-shadow: 0 -2px 0 #2b1e16, 0 2px 0 #2b1e16, -2px 0 0 #2b1e16, 2px 0 0 #2b1e16, 0 4px 0 rgb(26 18 13 / 0.42);
+  text-shadow: 0 2px #2b1e16;
+}
+
+.play-touch {
+  position: absolute;
+  right: 14px;
+  bottom: max(70px, calc(env(safe-area-inset-bottom) + 56px));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 14px;
+}
+
+.play-prompt kbd {
+  font-family: var(--text);
+  font-weight: 700;
+}
+
+/* the pause: a wooden sign over the darkened wood, its title carved and outlined, wooden buttons */
+html[data-play][data-paused] .forest {
+  filter: brightness(0.42) saturate(0.8);
+}
+
+.play-pause {
+  background: radial-gradient(ellipse at center, transparent 30%, rgb(8 12 9 / 0.55) 100%);
+}
+
+.play-sign {
+  display: grid;
+  justify-items: center;
+  gap: 14px;
+  width: min(620px, calc(100vw - 32px));
+  padding: 46px 40px 44px;
+  background-repeat: no-repeat;
+  image-rendering: pixelated;
+  text-align: center;
+}
+
+.play-sign .play-title {
+  margin: 0;
+  font-family: var(--font-pixel), monospace;
+  font-style: normal;
+  font-weight: 700;
+  font-size: clamp(1.9rem, 5vw, 3.1rem);
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: #f2a14c;
+  text-shadow:
+    3px 0 #5a2c12, -3px 0 #5a2c12, 0 3px #5a2c12, 0 -3px #5a2c12,
+    3px 3px #5a2c12, -3px 3px #5a2c12, 3px -3px #5a2c12, -3px -3px #5a2c12,
+    0 7px #3a1c0b, 3px 7px #3a1c0b, -3px 7px #3a1c0b;
+}
+
+.play-sign .play-keys {
+  max-width: 34ch;
+  margin: 6px 0 0;
+  font-family: var(--font-pixel), monospace;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: #5a2c12;
+}
+
+.play-sign .play-actions {
+  margin-top: 8px;
+}
+
+.wood-btn {
+  --b: 3px;
+  position: relative;
+  margin: var(--b);
+  padding: 9px 18px 11px;
+  font-family: var(--font-pixel), monospace;
+  font-weight: 700;
+  font-size: 1rem;
+  line-height: 1;
+  color: #fff4dc;
+  text-shadow: 0 2px #5a2c12;
+  background: linear-gradient(#f6c47c 0 calc(var(--b) * 2), #d98c45 calc(var(--b) * 2) calc(100% - var(--b) * 2), #a9622c calc(100% - var(--b) * 2));
+  box-shadow:
+    0 calc(var(--b) * -1) 0 #4a2310,
+    0 var(--b) 0 #4a2310,
+    calc(var(--b) * -1) 0 0 #4a2310,
+    var(--b) 0 0 #4a2310,
+    0 calc(var(--b) * 2) 0 rgb(40 20 8 / 0.45);
+  cursor: pointer;
+  transition: transform 0.08s steps(1), background 0.08s steps(1);
+}
+
+.wood-btn:hover,
+.wood-btn:focus-visible {
+  outline: none;
+  background: linear-gradient(#ffd496 0 calc(var(--b) * 2), #e89a52 calc(var(--b) * 2) calc(100% - var(--b) * 2), #b86c32 calc(100% - var(--b) * 2));
+}
+
+.wood-btn:active {
+  transition: none;
+  transform: translateY(var(--b));
+  box-shadow: 0 calc(var(--b) * -1) 0 #4a2310, 0 var(--b) 0 #4a2310, calc(var(--b) * -1) 0 0 #4a2310, var(--b) 0 0 #4a2310;
+}
+
+/* the sign's words, readable on the wood: light letters with a dark outline all round */
+.play-sign .play-title {
+  color: #ffe2a6;
+}
+
+.play-sign .play-keys {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #fff6e2;
+  text-shadow:
+    2px 0 #3e1d0a, -2px 0 #3e1d0a, 0 2px #3e1d0a, 0 -2px #3e1d0a,
+    2px 2px #3e1d0a, -2px 2px #3e1d0a, 2px -2px #3e1d0a, -2px -2px #3e1d0a;
+}
+
+.wood-btn {
+  color: #fffaf0;
+  text-shadow: 2px 0 #4a2310, -2px 0 #4a2310, 0 2px #4a2310, 0 -2px #4a2310;
+}

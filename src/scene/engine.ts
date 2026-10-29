@@ -1,15 +1,20 @@
 import * as THREE from 'three';
 import { projects } from '@/content/projects';
 import { garland } from './art/garland';
-import { COMPUTER, KEYBOARD, noticeSprite, screenIdle, screenPicture, type Notice, type NoticeText } from './art/props';
+import { reedSprites } from './art/gear';
+import { CAT_SIZE, COMPUTER, KEYBOARD, noticeSprite, PAW_W, PILL_AT, pictureToScreen, screenIdle, screenPicture, type Notice, type NoticeText } from './art/props';
 import { cut, Shatter } from './shatter';
-import { CRITTERS, FLORA, TUFT_KINDS } from './art/sprites';
-import { TREE_D, TREE_SET, type TreeKind } from './art/trees';
+import { atlas, CRITTERS, FLORA, TUFT_KINDS } from './art/sprites';
+import { BEECH_BARK, BIRCH_BARK, TREE_D, TREE_SET, type TreeKind } from './art/trees';
 import type { Painted } from './art/worker';
-import { ATMOS, CLEARING, CORRIDOR, DISCS, EDGE_Z, FRAMES, HERO, HOLLOW, K0, PUDDLES, ROOF, SHORT_SIDE, SUN, texelAt } from './config';
-import { blitMesh, depthMaterial, floorMesh, fogMesh, layerMesh, light, meshFor, motes, quadFor, skyMesh, toTexture, type LayerMesh } from './gl';
+import { ATMOS, CLEARING, CORRIDOR, DISC_WORLD, DISCS, EDGE_Z, FRAMES, HERO, HOLLOW, K0, PUDDLES, ROOF, SHORT_SIDE, SUN, texelAt } from './config';
+import { blitMesh, depthMaterial, floorMesh, fogMesh, layerMesh, light, meshFor, motes, quadFor, skyMesh, solidMesh, fixFacing, toTexture, view, type LayerMesh } from './gl';
+import { Gun } from './gun';
+import { Controls, Hud, Puffs, RIPPLES, scopePass, waterMesh } from './play';
+import { Bake, barkTexture, cardGeometry, clumpSprites, crownCards, extrude, floppyTexture, keysTexture, ringsTexture, stumpGeometry, trunkGeometry, type Card } from './solid';
+import { BOUNDS, critterSpots, EYE, extraTrees, GLADE, inBounds, LAKE, POND, RIVER, RIVER_W, SPAWN, waterDist } from './world';
 import { PAL } from './palette';
-import { hex, mulberry, Pix, rgbOf } from './pix';
+import { hash2, hex, mix, mulberry, noise1, Pix, ramp, rgbOf, shade } from './pix';
 import { forest, forestNow } from './store';
 import { buttonState, paintBoard, type Look, type Painted as Board2D, type Para } from './boards';
 
@@ -135,11 +140,22 @@ export function createForest(o: Opts) {
   const screen = { mesh: null as LayerMesh | null, pix: null as Pix | null, tex: null as THREE.DataTexture | null };
   const led = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0x1f241d }));
   const cat = { mesh: null as LayerMesh | null, open: null as THREE.Texture | null, shut: null as THREE.Texture | null };
-  type Critter = { mesh: LayerMesh; kind: number; home: THREE.Vector2; x: number; z: number; dir: number; state: 'idle' | 'move'; t: number; phase: number; flee: number };
+  type Critter = {
+    mesh: LayerMesh; kind: number; home: THREE.Vector2; origin: THREE.Vector2; x: number; z: number; y: number; dir: number;
+    /** pill mode: which way it heads (radians in the x-z plane), a bird's time aloft, seconds until it's back after a hit */
+    head: number; fly: number; dead: number; w: number; box: number; rect: number; flip: boolean;
+    state: 'idle' | 'move'; t: number; phase: number; flee: number;
+  };
   const critters: Critter[] = [];
   let critterAtlas: { rects: { x: number; y: number; w: number; h: number }[]; index: number[][]; w: number; h: number } | null = null;
   let dust: THREE.Points | null = null;
   let flora: LayerMesh | null = null;
+  type Art = { pix: Pix; rects: { x: number; y: number; w: number; h: number }[]; tex: THREE.Texture };
+  let floraArt: Art | null = null;
+  let stumpArt: { pix: Pix; ax: number; ay: number; d: number; tex: THREE.Texture } | null = null;
+  const paw = { mesh: null as LayerMesh | null, tex: [] as THREE.Texture[] };
+  let computerPix: Pix | null = null;
+  let critterPix: Pix | null = null;
   const got = new Set<string>();
 
   function receive(m: Painted) {
@@ -188,6 +204,7 @@ export function createForest(o: Opts) {
       case 'critters': {
         const e = m.extra as { rects: { x: number; y: number; w: number; h: number }[]; index: number[][] };
         critterAtlas = { ...e, w: pix.w, h: pix.h };
+        critterPix = pix;
         spawnCritters(toTexture(pix, { mips: false }));
         break;
       }
@@ -195,11 +212,14 @@ export function createForest(o: Opts) {
         add(layerMesh(l, { side: 3000 }), 0, 0, CLEARING.backdropZ);
         break;
       case 'computer': {
+        computerPix = pix;
         const d = CLEARING.camZ - CLEARING.computer.z;
         add(layerMesh({ pix, ax: COMPUTER.ax, ay: COMPUTER.ay, d }, {}, false), CLEARING.computer.x, 0, CLEARING.computer.z, 'computer');
         const s = screenIdle(true);
         const sm = layerMesh({ pix: s, ax: COMPUTER.ax - COMPUTER.screen.x, ay: COMPUTER.ay - COMPUTER.screen.y, d }, {}, false, 0);
         sm.userData.caster = false;
+        // the glass stays on the computer's face when you walk round it in pill mode
+        fixFacing(sm);
         screen.mesh = add(sm, CLEARING.computer.x, 0, CLEARING.computer.z + 0.01);
         screen.pix = s;
         screen.tex = sm.material.uniforms.map.value as THREE.DataTexture;
@@ -221,6 +241,9 @@ export function createForest(o: Opts) {
       case 'stump': {
         const st = add(layerMesh(l, { side: 3000 }), CLEARING.exitX, 0, HOLLOW.stumpZ);
         st.userData.hollow = true;
+        // its band of ferns runs out far to the sides for the walk's view; pill mode stands the stump alone
+        st.userData.walkOnly = true;
+        stumpArt = { pix, ax: m.ax, ay: m.ay, d: m.d, tex: st.material.uniforms.map.value as THREE.Texture };
         const [cx, cy] = (m.extra as { catAt: [number, number] }).catAt;
         const t = texelAt(m.d);
         st.userData.catAt = [CLEARING.exitX + (cx - m.ax) * t, (m.ay - cy) * t];
@@ -239,10 +262,23 @@ export function createForest(o: Opts) {
         } else cat.shut = tex;
         break;
       }
+      case 'catPaw0':
+      case 'catPaw1': {
+        paw.tex[m.key === 'catPaw0' ? 0 : 1] = toTexture(pix, { mips: false });
+        if (!paw.mesh && cat.mesh) {
+          const d = HOLLOW.camZ - HOLLOW.stumpZ;
+          const pm = meshFor(quadFor(PAW_W, pix.h, CAT_SIZE.w / 2, pix.h, d), paw.tex[0] ?? paw.tex[1], 0.45, false);
+          paw.mesh = add(pm, cat.mesh.position.x, cat.mesh.position.y, HOLLOW.stumpZ + 0.012);
+          Object.assign(paw.mesh.userData, { hollow: true, hidden: true, offPlay: true });
+        }
+        break;
+      }
       case 'hollowWall': {
         // the heart of the swirl sits behind the cat
         const d = HOLLOW.camZ - HOLLOW.wallZ;
-        add(layerMesh(l, { side: 600 }), CLEARING.exitX, HOLLOW.camY + 30 * d * K0, HOLLOW.wallZ).userData.hollow = true;
+        const wall = add(layerMesh(l, { side: 600 }), CLEARING.exitX, HOLLOW.camY + 30 * d * K0, HOLLOW.wallZ);
+        wall.userData.hollow = true;
+        wall.userData.walkOnly = true;
         break;
       }
       case 'hollowBack':
@@ -336,35 +372,49 @@ export function createForest(o: Opts) {
       spots.push({ kind: wide() < 0.1 ? 'bush' : kinds[Math.floor(wide() * kinds.length)], x, z, s: 0.9 + wide() * 0.35 });
       n++;
     }
-    // one batch per painted sprite: each spot takes one of its kind's sprites
-    const t = texelAt(TREE_D);
-    const groups = treeTex.map(() => ({ pos: [] as number[], uv: [] as number[], idx: [] as number[] }));
+    // each spot takes one of its kind's sprites
     for (const sp of spots) {
       const options = treeTex.map((tt, i) => (tt.kind === sp.kind ? i : -1)).filter((i) => i >= 0);
       const gi = options[Math.floor(rnd() * options.length)];
-      const tt = treeTex[gi];
-      const g = groups[gi];
+      walkTrees.push({ ...sp, gi, flip: rnd() < 0.5 });
+    }
+    for (const m of batchTrees(walkTrees)) m.userData.walkOnly = true;
+    planted = true;
+  }
+  type Planted = { kind: TreeKind | 'bush'; gi: number; x: number; z: number; s: number; flip: boolean };
+  const walkTrees: Planted[] = [];
+  /** One batch per painted sprite. In pill mode each tree turns round its own foot to face you. */
+  function batchTrees(list: Planted[]) {
+    const t = texelAt(TREE_D);
+    const groups = treeTex.map(() => ({ pos: [] as number[], uv: [] as number[], idx: [] as number[], anchor: [] as number[] }));
+    for (const sp of list) {
+      const tt = treeTex[sp.gi];
+      const g = groups[sp.gi];
       const k = t * sp.s;
       const x0 = sp.x - tt.ax * k;
       const x1 = sp.x + (tt.pix.w - tt.ax) * k;
       const y1 = (tt.ay + 1) * k;
       const n = g.pos.length / 3;
       g.pos.push(x0, y1, sp.z, x1, y1, sp.z, x0, 0, sp.z, x1, 0, sp.z);
-      const flip = rnd() < 0.5;
+      for (let a = 0; a < 4; a++) g.anchor.push(sp.x, 0, sp.z);
+      const flip = sp.flip;
       const v1 = (tt.ay + 1) / tt.pix.h;
       g.uv.push(flip ? 1 : 0, 0, flip ? 0 : 1, 0, flip ? 1 : 0, v1, flip ? 0 : 1, v1);
       g.idx.push(n, n + 2, n + 1, n + 2, n + 3, n + 1);
     }
+    const out: LayerMesh[] = [];
     groups.forEach((g, i) => {
       if (!g.idx.length) return;
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(g.pos, 3));
       geo.setAttribute('uv', new THREE.Float32BufferAttribute(g.uv, 2));
+      geo.setAttribute('anchor', new THREE.Float32BufferAttribute(g.anchor, 3));
       geo.setIndex(g.idx);
       const mesh = add(meshFor(geo, treeTex[i].tex), 0, 0, 0);
       mesh.userData.always = true;
+      out.push(mesh);
     });
-    planted = true;
+    return out;
   }
 
   // --- flowers and mushrooms, all in one mesh --------------------------------------------------------
@@ -374,6 +424,7 @@ export function createForest(o: Opts) {
     const pos: number[] = [];
     const uv: number[] = [];
     const idx: number[] = [];
+    const anchor: number[] = [];
     const put = (kind: number, x: number, z: number) => {
       const r = rects[kind];
       const w = r.w * t;
@@ -386,6 +437,7 @@ export function createForest(o: Opts) {
       const v1 = (r.y + r.h) / pix.h;
       uv.push(u0, v0, u1, v0, u0, v1, u1, v1);
       idx.push(n, n + 2, n + 1, n + 2, n + 3, n + 1);
+      for (let a = 0; a < 4; a++) anchor.push(x, 0, z);
     };
     // kinds: 0 daisy 1 daisies 2 buttercup 3 bluebells 4 campion 5 clover 6 toadstool 7 small toadstool 8 brown caps 9 sprout
     const meadow = [0, 1, 2, 2, 3, 4, 5, 5, 0, 1];
@@ -468,8 +520,11 @@ export function createForest(o: Opts) {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setAttribute('anchor', new THREE.Float32BufferAttribute(anchor, 3));
     g.setIndex(idx);
-    flora = add(meshFor(g, toTexture(pix, { mips: true })), 0, 0, 0);
+    const ftex = toTexture(pix, { mips: true });
+    floraArt = { pix, rects, tex: ftex };
+    flora = add(meshFor(g, ftex), 0, 0, 0);
     flora.userData.always = true;
     flora.userData.caster = false;
   }
@@ -488,15 +543,24 @@ export function createForest(o: Opts) {
       [0, CLEARING.exitX - 0.9, -85], [3, CLEARING.exitX + 0.8, -89],
       [4, CLEARING.exitX - 1.1, -99], [3, CLEARING.exitX + 1.3, -100.5], [0, CLEARING.exitX + 1.9, -102],
     ];
-    for (const [kind, x, z] of homes) {
-      const frames = critterAtlas.index[kind];
-      const r0 = critterAtlas.rects[frames[0]];
-      const boxH = Math.max(...frames.map((f) => critterAtlas!.rects[f].h));
-      const mesh = meshFor(quadFor(r0.w, boxH, r0.w / 2, boxH, CRITTER_D), tex);
-      mesh.userData.boxH = boxH;
-      add(mesh, x, 0, z);
-      critters.push({ mesh, kind, home: new THREE.Vector2(x, z), x, z, dir: rnd() < 0.5 ? -1 : 1, state: 'idle', t: rnd() * 2, phase: rnd() * 10, flee: 0 });
-    }
+    critterTex = tex;
+    for (const [kind, x, z] of homes) makeCritter(kind, x, z, rnd);
+  }
+  let critterTex: THREE.Texture | null = null;
+  function makeCritter(kind: number, x: number, z: number, rnd: () => number) {
+    const frames = critterAtlas!.index[kind];
+    const r0 = critterAtlas!.rects[frames[0]];
+    const boxH = Math.max(...frames.map((f) => critterAtlas!.rects[f].h));
+    const mesh = meshFor(quadFor(r0.w, boxH, r0.w / 2, boxH, CRITTER_D), critterTex!);
+    mesh.userData.boxH = boxH;
+    add(mesh, x, 0, z);
+    const c: Critter = {
+      mesh, kind, home: new THREE.Vector2(x, z), origin: new THREE.Vector2(x, z), x, z, y: 0,
+      dir: rnd() < 0.5 ? -1 : 1, state: 'idle', t: rnd() * 2, phase: rnd() * 10, flee: 0,
+      head: Math.random() * Math.PI * 2, fly: 0, dead: 0, w: r0.w, box: boxH, rect: frames[0], flip: false,
+    };
+    critters.push(c);
+    return c;
   }
 
   function updateCritters(dt: number, now: number) {
@@ -798,7 +862,8 @@ export function createForest(o: Opts) {
     // the free space right of the computer, in game pixels from the middle of the screen
     const from = size.W * 0.07;
     const avail = size.W * 0.5 - from - 6;
-    notice.on = size.wide && avail >= 168;
+    // pill mode always has the board standing in the clearing, to read and to shoot
+    notice.on = playing || (size.wide && avail >= 168);
     if (!notice.on) {
       if (notice.sharp) notice.sharp.visible = false;
       return;
@@ -858,6 +923,7 @@ export function createForest(o: Opts) {
       notice.shatter.dispose();
     }
     const sh = new Shatter(sp.pix, cut(sp.pix, coarse ? 30 : 56, 97), coarse ? 320 : 900);
+    fixFacing(sh.mesh);
     scene.add(sh.mesh, sh.spray.points);
     notice.shatter = sh;
     const turn = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), notice.yaw);
@@ -888,7 +954,7 @@ export function createForest(o: Opts) {
     if (sh && !notice.on) sh.mesh.visible = false;
     if (!notice.on || !notice.mesh || !notice.sprite) return;
     notice.shake = Math.max(0, notice.shake - dt);
-    if (notice.state === 'standing' && ready && o.scroll() > stages.a + 6 && Math.abs(camera.position.z - CLEARING.camZ) < 3) breakNotice();
+    if (!playing && notice.state === 'standing' && ready && o.scroll() > stages.a + 6 && Math.abs(camera.position.z - CLEARING.camZ) < 3) breakNotice();
     if (notice.state === 'rising') {
       notice.rise = reduced ? 1 : Math.min(1, notice.rise + dt / 1.1);
       if (notice.rise >= 1) notice.state = 'standing';
@@ -925,15 +991,25 @@ export function createForest(o: Opts) {
       pin($(`[data-pin="work-link${i}"]`), Math.min(noticeAt.x, noticeAt2.x), Math.min(noticeAt.y, noticeAt2.y), Math.max(noticeAt.x, noticeAt2.x), Math.max(noticeAt.y, noticeAt2.y), (noticeAt.z + noticeAt2.z) / 2, show);
     });
   }
+  const pressedAt: Record<string, number> = {};
   const buttonEvent = (state: 'hover' | 'press' | null) => (ev: Event) => {
     const el = (ev.target as HTMLElement | null)?.closest?.('[data-pin]') as HTMLElement | null;
     if (!el?.dataset.pin) return;
     const id = el.dataset.pin;
-    const next = state ?? undefined;
-    if (buttonState[id] === next) return;
-    if (next) buttonState[id] = next;
-    else delete buttonState[id];
-    if (boards.work) hangAll();
+    const apply = () => {
+      if (disposed) return;
+      const next = state ?? undefined;
+      if (buttonState[id] === next) return;
+      if (next) buttonState[id] = next;
+      else delete buttonState[id];
+      if (next === 'press') pressedAt[id] = performance.now();
+      // the socials hang on their own board even where the work's words are on the notice board
+      if (boards.socials || boards.work) hangAll();
+    };
+    // a quick click still shows the button going down: it stays pressed a moment, however short the click
+    const held = performance.now() - (pressedAt[id] ?? -1e9);
+    if (buttonState[id] === 'press' && state !== 'press' && held < 160) setTimeout(apply, 160 - held);
+    else apply();
   };
   const onOver = buttonEvent('hover');
   const onOut = buttonEvent(null);
@@ -1205,14 +1281,28 @@ export function createForest(o: Opts) {
       d.mesh.position.y += Math.sin(Math.PI * e) * 0.2 + Math.round(d.lift * 3) * tex;
       const narrow = (COMPUTER.slot.w * texelAt(4) * 0.9) / d.w;
       d.mesh.scale.set(1 + (narrow - 1) * ease(e), 1 - 0.9 * smooth(0.55, 1, e), 1);
-      d.mesh.visible = e < 0.999;
+      d.mesh.visible = e < 0.999 && !playing;
     });
   }
 
   let lastScreen = '';
+  /** The projects' little screen pictures, for the monitor in pill mode. */
+  const shots: Uint32Array[] = [];
+  function screenShot(i: number) {
+    if (!shots[i]) {
+      shots[i] = dark;
+      const img = new Image();
+      img.onload = () => {
+        shots[i] = pictureToScreen(img);
+        lastScreen = '';
+      };
+      img.src = `/screens/${projects[i].slug}.png`;
+    }
+    return shots[i];
+  }
   const dark = new Uint32Array(COMPUTER.screen.w * COMPUTER.screen.h).fill(PAL.computer.screen[1]);
   function updateScreen(now: number) {
-    if (!screen.tex || !screen.pix) return;
+    if (!screen.tex || !screen.pix || screenBroken) return;
     let key: string;
     let pix: Pix;
     if (bootAt < 0) {
@@ -1223,9 +1313,10 @@ export function createForest(o: Opts) {
     } else {
       const k = Math.min(1, (now - bootAt) / 0.35);
       const steps = Math.floor(k * 13) / 13;
-      key = `boot${steps}`;
+      const shot = playing && loaded !== null ? screenShot(loaded) : dark;
+      key = `boot${steps}${shot === dark ? '' : loaded}`;
       if (key === lastScreen) return;
-      pix = screenPicture(dark, steps);
+      pix = screenPicture(shot, steps);
     }
     lastScreen = key;
     screen.pix.data.set(pix.data);
@@ -1320,6 +1411,1071 @@ export function createForest(o: Opts) {
     pin($('pin-screen'), x0, y1 - sc.h * t, x0 + sc.w * t, y1, CLEARING.computer.z + 0.01, atClearing && st.loaded !== null && bootAt >= 0 && clock - bootAt > 0.3);
   }
 
+  // --- the cat's pill ------------------------------------------------------------------------------------
+  /**
+   * A second after you sit down by the cat, she holds out a paw with a pill on it; a line of words over it and
+   * a Take button under it are the page's own, pinned to the paw.
+   */
+  const offer = { t: 0 };
+  function updateOffer(dt: number, s: number, at: THREE.Vector3) {
+    // she has it ready as you come down to her, not after you've sat a while
+    const there = ready && !trans && s >= stages.c - window.innerHeight * 0.35 && at.z < HOLLOW.camZ + 2.5;
+    offer.t = there ? offer.t + dt : 0;
+    const frame = offer.t < 0.15 ? -1 : offer.t < 0.3 ? 0 : 1;
+    if (paw.mesh) {
+      paw.mesh.userData.hidden = frame < 0;
+      const tex = paw.tex[Math.max(0, frame)];
+      if (tex) paw.mesh.material.uniforms.map.value = tex;
+    }
+    const show = frame === 1 && offer.t > 0.45 && !!paw.mesh;
+    const t = texelAt(HOLLOW.camZ - HOLLOW.stumpZ);
+    const p = paw.mesh?.position;
+    const px = (p?.x ?? 0) + (PILL_AT.x - CAT_SIZE.w / 2) * t;
+    const py = (p?.y ?? 0) + (CAT_SIZE.h - PILL_AT.y) * t;
+    pinPoint($('pill-say'), px - 2.5 * t, py + 3 * t, p?.z ?? 0, show);
+    pinPoint($('pill-take'), px - 2.5 * t, py - 7 * t, p?.z ?? 0, show);
+  }
+  /** Moves a page element so its anchor sits on a point in the forest (its own CSS places it round that point). */
+  function pinPoint(el: HTMLElement | null, x: number, y: number, z: number, show: boolean) {
+    if (!el) return;
+    let last = written.get(el);
+    if (!last) {
+      last = { show: !show, t: '', w: '', h: '' };
+      written.set(el, last);
+    }
+    if (last.show !== show) {
+      el.dataset.show = show ? 'true' : 'false';
+      last.show = show;
+    }
+    if (!show) return;
+    const [ax, ay] = toCss(a3.set(x, y, z));
+    const tr = `translate(${ax.toFixed(1)}px, ${ay.toFixed(1)}px)`;
+    if (tr !== last.t) el.style.transform = last.t = tr;
+  }
+
+  // --- pill mode: walking about in the wood ------------------------------------------------------------
+  /**
+   * You wake at the edge of the wood where the walk began, and can go anywhere inside an invisible fence.
+   * Built the way the old 2.5D shooters were: the camera only ever turns about the upright, every sprite turns
+   * with it (so nothing goes paper thin), looking up and down shears the picture instead of tilting it (so the
+   * trees stay upright), and the rifle and counter are drawn in the same game pixels as the wood.
+   */
+  let playing = false;
+  let paused = false;
+  let tiltPx = 0;
+  let score = 0;
+  const P = { x: SPAWN.x, z: SPAWN.z, y: 0, vy: 0, vx: 0, vz: 0, yaw: 0, pitch: 0, kick: 0, step: 0, walk: 0, cool: 0 };
+  const eye = new THREE.Vector3();
+  const tv = new THREE.Vector3();
+  let controls: Controls | null = null;
+  let hud: Hud | null = null;
+  let puffs: Puffs | null = null;
+  let water: ReturnType<typeof waterMesh> | null = null;
+  /** Pill mode's ground cover and water: not in the puddles' mirrored view. */
+  const playHide: THREE.Object3D[] = [];
+  const lids: THREE.Mesh[] = [];
+  let playBuilt = false;
+  let shardsShown = false;
+  type Solid = { x: number; z: number; r: number };
+  let solids: Solid[] = [];
+  const grid = new Map<number, Solid[]>();
+  const cellKey = (i: number, j: number) => (i + 1000) * 4000 + j + 2000;
+  function nearSolids(x: number, z: number) {
+    const out: Solid[] = [];
+    const i0 = Math.floor(x / 2);
+    const j0 = Math.floor(z / 2);
+    for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) out.push(...(grid.get(cellKey(i0 + i, j0 + j)) ?? []));
+    return out;
+  }
+  /** How far along a flat ray (x, z) → (fx, fz) the first trunk is, or null if none within max. */
+  function firstSolid(x: number, z: number, fx: number, fz: number, max: number) {
+    let best = Infinity;
+    for (const so of solids) {
+      const ox = so.x - x;
+      const oz = so.z - z;
+      const t = ox * fx + oz * fz;
+      if (t < 0 || t - so.r > max) continue;
+      const qx = ox - fx * t;
+      const qz = oz - fz * t;
+      const d2 = qx * qx + qz * qz;
+      if (d2 > so.r * so.r) continue;
+      best = Math.min(best, t - Math.sqrt(so.r * so.r - d2));
+    }
+    return best <= max ? best : null;
+  }
+
+  /** Sprites from an atlas, one quad each standing on the floor, all in one mesh. */
+  function spriteBatch(art: Art, d: number, items: [number, number, number][]) {
+    const t = texelAt(d);
+    const pos: number[] = [];
+    const uv: number[] = [];
+    const idx: number[] = [];
+    const anchor: number[] = [];
+    for (const [kind, x, z] of items) {
+      const r = art.rects[kind];
+      const w = r.w * t;
+      const h = r.h * t;
+      const n = pos.length / 3;
+      pos.push(x - w / 2, h, z, x + w / 2, h, z, x - w / 2, 0, z, x + w / 2, 0, z);
+      const u0 = r.x / art.pix.w;
+      const u1 = (r.x + r.w) / art.pix.w;
+      const v0 = r.y / art.pix.h;
+      const v1 = (r.y + r.h) / art.pix.h;
+      uv.push(u0, v0, u1, v0, u0, v1, u1, v1);
+      idx.push(n, n + 2, n + 1, n + 2, n + 3, n + 1);
+      for (let a = 0; a < 4; a++) anchor.push(x, 0, z);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setAttribute('anchor', new THREE.Float32BufferAttribute(anchor, 3));
+    g.setIndex(idx);
+    const m = add(meshFor(g, art.tex, 1, false), 0, 0, 0);
+    Object.assign(m.userData, { always: true, playOnly: true });
+    playHide.push(m);
+    return m;
+  }
+
+  /** Grass over all the ground the walk never covered, wildflowers round the lake, mushrooms in the wood. */
+  function playFlora() {
+    const rnd = mulberry(1717);
+    const items: [number, number, number][] = [];
+    const pick = (a: number, b: number, t: number) => (rnd() < t ? b : a);
+    const zone = (z: number) =>
+      z > -6 ? 0 : z > -30 ? pick(0, 1, (-6 - z) / 24) : z > -58 ? pick(1, 2, (-30 - z) / 28) : z > -68 ? pick(2, 3, (-58 - z) / 10) : z > -79 ? 3 : z > -90 ? pick(3, 4, (-79 - z) / 11) : 4;
+    for (let i = 0; i < 26000; i++) {
+      const x = -34 + rnd() * 70;
+      const z = -114 + rnd() * 162;
+      if (x > -7 && x < 11 && z < -0.3 && z > -107.3) continue;
+      if (waterDist(x, z) < 0.12) continue;
+      items.push([FLORA.length + zone(z) * TUFT_KINDS + Math.floor(rnd() * TUFT_KINDS), x, z]);
+    }
+    const patch = (cx: number, cz: number, n: number, kinds: number[], r: number) => {
+      for (let k = 0; k < n; k++) {
+        const rr = Math.pow(rnd(), 0.7) * r;
+        const a = rnd() * Math.PI * 2;
+        const x = cx + Math.cos(a) * rr;
+        const z = cz + Math.sin(a) * rr * 0.7;
+        if (waterDist(x, z) > 0.2) items.push([kinds[Math.floor(rnd() * kinds.length)], x, z]);
+      }
+    };
+    const meadow = [0, 1, 2, 2, 3, 4, 5, 5, 0, 1];
+    const wood = [6, 7, 8, 8, 6, 3, 3, 0, 5, 2, 4, 7, 1];
+    for (let i = 0; i < 170; i++) {
+      const a = rnd() * Math.PI * 2;
+      const r = Math.sqrt(rnd()) * 0.95;
+      patch(GLADE.x + Math.cos(a) * r * GLADE.rx, GLADE.z + Math.sin(a) * r * GLADE.rz, 5 + Math.floor(rnd() * 9), meadow, 0.45);
+    }
+    for (let i = 0; i < 320; i++) {
+      const x = BOUNDS.x0 + rnd() * (BOUNDS.x1 - BOUNDS.x0);
+      const z = -8 - rnd() * 100;
+      if (x > -5 && x < 9) continue;
+      const k = wood[Math.floor(rnd() * wood.length)];
+      patch(x, z, 4 + Math.floor(rnd() * 8), [k, k, k, k, wood[Math.floor(rnd() * wood.length)]], 0.25);
+    }
+    // a fairy ring of toadstools in the dark beside the pond
+    for (let i = 0; i < 16; i++) {
+      const a = (i / 16) * Math.PI * 2;
+      items.push([i % 3 ? 6 : 7, 11.2 + Math.cos(a) * 1.15, -51 + Math.sin(a) * 0.9]);
+    }
+    return items;
+  }
+
+  /** Reeds along every bank, in clumps; the lake's near shore is left mostly open so you see the water. */
+  function reedSpots() {
+    const rnd = mulberry(2323);
+    const out: [number, number, number][] = [];
+    const clump = (x: number, z: number) => {
+      const n = 1 + Math.floor(rnd() * 3);
+      for (let k = 0; k < n; k++) out.push([Math.floor(rnd() * 3), x + (rnd() - 0.5) * 0.3, z + (rnd() - 0.5) * 0.2]);
+    };
+    for (const [e, count] of [[LAKE, 46], [POND, 16]] as const) {
+      for (let i = 0; i < count; i++) {
+        const a = rnd() * Math.PI * 2;
+        if (e === LAKE && Math.sin(a) < -0.25 && rnd() < 0.8) continue;
+        const k = 1 + (rnd() - 0.35) * 0.08;
+        clump(e.x + Math.cos(a) * e.rx * k, e.z + Math.sin(a) * e.rz * k);
+      }
+    }
+    for (let i = 0; i < RIVER.length - 1; i++) {
+      const [ax, az] = RIVER[i];
+      const [bx, bz] = RIVER[i + 1];
+      const len = Math.hypot(bx - ax, bz - az);
+      const nx = -(bz - az) / len;
+      const nz = (bx - ax) / len;
+      for (let d = 0; d < len; d += 0.8) {
+        for (const side of [-1, 1]) {
+          if (rnd() > 0.42) continue;
+          const off = RIVER_W + (rnd() - 0.3) * 0.25;
+          clump(ax + ((bx - ax) * d) / len + nx * side * off, az + ((bz - az) * d) / len + nz * side * off);
+        }
+      }
+    }
+    return out;
+  }
+
+  /** The way every sprite faces for the light: towards the sun, so light and shadow never move as you turn. */
+  const LIGHT_YAW = Math.atan2(-SUN[0], -SUN[2]);
+  let panPx = 0;
+  /** How far the view is zoomed (the scope), and how far the rifle is raised to the eye (0..1). */
+  let zoom = 1;
+  let aimT = 0;
+  let aimDepth = Infinity;
+  let lastTurn: [number, number] = [0, 0];
+  const scopeSway = new THREE.Vector2();
+  let gun: Gun | null = null;
+  let scope: ReturnType<typeof scopePass> | null = null;
+  let lens: THREE.WebGLRenderTarget | null = null;
+  let prompt: string | null = null;
+  let rippleNext = 0;
+  const wading = { ring: 0, dry: true, air: false };
+  const ray = new THREE.Raycaster();
+  const props3d = { discs: [] as LayerMesh[], board: [] as LayerMesh[], boardFor: null as Notice | null, pc: null as LayerMesh | null };
+  let screenBroken = false;
+
+  function buildPlay() {
+    if (playBuilt) return;
+    playBuilt = true;
+    // the walk's wood, less the trees that stood where the water is, and more of it all round
+    const kept = walkTrees.filter((t) => waterDist(t.x, t.z) > 0.9);
+    const kinds: TreeKind[] = ['oak', 'oak', 'oak', 'beech', 'beech', 'beech', 'birch', 'birch', 'young', 'young', 'ancient'];
+    const extra = extraTrees(walkTrees).map((t): Planted => {
+      const kind: TreeKind | 'bush' = t.pick < 0.1 ? 'bush' : kinds[Math.floor(((t.pick * 7919) % 1) * kinds.length)];
+      return { kind, gi: 0, x: t.x, z: t.z, s: t.s, flip: false };
+    });
+    // the two big trees at the edge of the wood stand in 3D too
+    const ex = Math.abs(keyed.edgeL?.position.x ?? 2.6);
+    const edge: Planted[] = [-1, 1].map((sd) => ({ kind: 'oak', gi: 0, x: sd * ex, z: EDGE_Z, s: 1.45, flip: false }));
+    const all = [...kept, ...extra, ...edge];
+    plantSolidTrees(all);
+    for (const k of ['edgeL', 'edgeR', 'computer', 'keyboard']) if (keyed[k]) keyed[k].userData.walkOnly = true;
+    // what you bump into: trunks (bushes you push through), the computer, the stump
+    const R: Record<string, number> = { oak: 0.2, beech: 0.16, birch: 0.11, young: 0.08, ancient: 0.36, bush: 0 };
+    solids = all.filter((t) => R[t.kind] > 0).map((t) => ({ x: t.x, z: t.z, r: R[t.kind] * t.s }));
+    solids.push({ x: CLEARING.computer.x, z: CLEARING.computer.z - 0.2, r: 0.5 }, { x: CLEARING.exitX, z: HOLLOW.stumpZ, r: 0.66 });
+    for (const so of solids) {
+      const k = cellKey(Math.floor(so.x / 2), Math.floor(so.z / 2));
+      const list = grid.get(k);
+      if (list) list.push(so);
+      else grid.set(k, [so]);
+    }
+    if (floraArt) spriteBatch(floraArt, FLORA_D, playFlora());
+    const reeds = atlas(reedSprites());
+    spriteBatch({ pix: reeds.pix, rects: reeds.rects, tex: toTexture(reeds.pix, { mips: true }) }, 7, reedSpots());
+    buildProps();
+    // more animals all over, and frogs by the water
+    if (critterAtlas && critterTex) {
+      const rnd = mulberry(616);
+      const ck = [0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 3, 4];
+      critterSpots(46, 617).forEach(([x, z], i) => {
+        makeCritter(ck[i % ck.length], x, z, rnd).mesh.userData.playOnly = true;
+      });
+      for (let i = 0; i < 10; i++) {
+        const e = i < 6 ? LAKE : POND;
+        const a = rnd() * Math.PI * 2;
+        makeCritter(4, e.x + Math.cos(a) * (e.rx + 0.5), e.z + Math.sin(a) * (e.rz + 0.5), rnd).mesh.userData.playOnly = true;
+      }
+    }
+    water = waterMesh(floorPattern!, mirroredFog.texture, 0.008 * 256);
+    scene.add(water);
+    playHide.push(water);
+    puffs = new Puffs();
+    scene.add(puffs.points);
+    hud = new Hud();
+    gun = new Gun();
+    scope = scopePass();
+    lens = new THREE.WebGLRenderTarget(size.W, size.H, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false, depthBuffer: false });
+    // a lid of leaves over the wood past the walk's own roof, so the sun doesn't pour in beyond the fence
+    const solidPix = new Pix(1, 1);
+    solidPix.data[0] = 0xffffffff;
+    const lidTex = toTexture(solidPix, { mips: false });
+    for (const [x0, x1, z0, z1] of [[-170, ROOF.x0, ROOF.z0, -280], [ROOF.x1, 170, ROOF.z0, -280], [ROOF.x0, ROOF.x1, ROOF.z1, -280]]) {
+      const lid = new THREE.Mesh(new THREE.PlaneGeometry(x1 - x0, z0 - z1), depthMaterial(lidTex, undefined, false));
+      lid.rotation.x = -Math.PI / 2;
+      lid.position.set((x0 + x1) / 2, ROOF.y, (z0 + z1) / 2);
+      lid.layers.set(1);
+      lid.frustumCulled = false;
+      lid.visible = false;
+      scene.add(lid);
+      lids.push(lid);
+    }
+    renderer.compile(scene, camera);
+  }
+
+  /**
+   * The trees in 3D: each a round trunk with its flared foot and limbs (all of one bark baked into one mesh),
+   * and a crown of leaf clumps hung through its oval, every clump a card that turns to you (all in one mesh).
+   * Seeded by where each tree stands, so the wood is the same for everyone.
+   */
+  function plantSolidTrees(list: Planted[]) {
+    const tmpl = new Map<TreeKind, THREE.BufferGeometry>();
+    const bakes = new Map<string, Bake>();
+    const cards: Card[] = [];
+    const m4 = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const sv = new THREE.Vector3();
+    const pv = new THREE.Vector3();
+    const Y = new THREE.Vector3(0, 1, 0);
+    const barkOf = (k: TreeKind) => (k === 'beech' ? 'beech' : k === 'birch' ? 'birch' : k === 'ancient' ? 'deep' : 'mid');
+    for (const tr of list) {
+      const rnd = mulberry((Math.round(tr.x * 97) * 73856093) ^ (Math.round(tr.z * 89) * 19349663));
+      const far = !inBounds(tr.x, tr.z, -3);
+      if (tr.kind !== 'bush') {
+        let g = tmpl.get(tr.kind);
+        if (!g) tmpl.set(tr.kind, (g = trunkGeometry(tr.kind)));
+        m4.compose(pv.set(tr.x, 0, tr.z), q.setFromAxisAngle(Y, rnd() * Math.PI * 2), sv.setScalar(tr.s));
+        const key = barkOf(tr.kind);
+        let b = bakes.get(key);
+        if (!b) bakes.set(key, (b = new Bake()));
+        b.add(g, m4);
+      }
+      crownCards(tr.kind, tr.x, tr.z, tr.s, far, rnd, cards);
+    }
+    const barks: Record<string, THREE.Texture> = {
+      mid: barkTexture(PAL.mid.bark, { moss: PAL.mid.moss, seed: 41 }),
+      beech: barkTexture(BEECH_BARK, { seed: 42 }),
+      birch: barkTexture(BIRCH_BARK, { birch: true, seed: 43 }),
+      deep: barkTexture(PAL.deep.bark, { moss: PAL.mid.moss, seed: 44 }),
+    };
+    for (const [key, b] of bakes) Object.assign(add(solidMesh(b.geometry(), barks[key]), 0, 0, 0).userData, { playOnly: true, always: true });
+    const leaves = atlas(clumpSprites());
+    const lm = add(meshFor(cardGeometry(cards, leaves.rects, leaves.pix.w, leaves.pix.h), toTexture(leaves.pix, { mips: true })), 0, 0, 0);
+    Object.assign(lm.userData, { playOnly: true, always: true });
+  }
+
+  /** The stump, the computer, the keyboard and the floppies as solid things. */
+  function buildProps() {
+    const solid = (g: THREE.BufferGeometry, tex: THREE.Texture, x: number, y: number, z: number) => {
+      const m = add(solidMesh(g, tex), x, y, z);
+      m.userData.playOnly = true;
+      return m;
+    };
+    if (cat.mesh) {
+      const st = stumpGeometry(cat.mesh.position.y);
+      solid(st.side, barkTexture(PAL.hollow.bark, { moss: PAL.hollow.moss, seed: 45 }), CLEARING.exitX, 0, HOLLOW.stumpZ);
+      solid(st.cap, ringsTexture(), CLEARING.exitX, 0, HOLLOW.stumpZ);
+    }
+    if (computerPix && keyed.computer) {
+      const ex = extrude(computerPix, texelAt(CLEARING.camZ - CLEARING.computer.z), COMPUTER.ax, COMPUTER.ay, 0.42, paintComputerBack);
+      props3d.pc = solid(ex.body, keyed.computer.material.uniforms.map.value as THREE.Texture, CLEARING.computer.x, 0, CLEARING.computer.z);
+      solid(ex.back, toTexture(ex.backPix, { mips: false }), CLEARING.computer.x, 0, CLEARING.computer.z);
+    }
+    if (keyed.keyboard) {
+      const w = KEYBOARD.w * texelAt(KEYBOARD_D);
+      solid(new THREE.BoxGeometry(w, 0.035, w * 0.36), keysTexture(), keyed.keyboard.position.x, 0.018, CLEARING.camZ - KEYBOARD_D + 0.12).rotation.y = 0.12;
+    }
+    discs.forEach((d, i) => {
+      if (!d) return;
+      const pr = projects[i];
+      props3d.discs[i] = solid(new THREE.BoxGeometry(DISC_WORLD, 0.016, DISC_WORLD), floppyTexture(pr.title, pr.disc.body, pr.disc.stripe), d.rest.x, 0.008, d.rest.z);
+      d.mesh.userData.offPlay = true;
+    });
+  }
+
+  /** The back of the old computer: vent slots, a maker's sticker, the power socket, screws, moss on top. */
+  function paintComputerBack(p: Pix, main: number) {
+    const on = (x: number, y: number) => p.get(x, y) >>> 24 > 0;
+    const dark = mix(main, 0xff1a1612, 0.55);
+    const deep = mix(main, 0xff100c0a, 0.8);
+    const light = mix(main, 0xffffffff, 0.18);
+    for (let y = 0; y < p.h; y++) for (let x = 0; x < p.w; x++) if (on(x, y)) p.set(x, y, hash2(x, y, 961) < 0.08 ? dark : hash2(x, y, 962) < 0.06 ? light : main);
+    const sc = COMPUTER.screen;
+    // rows of vent slots across the back of the tube
+    for (let y = sc.y + 4; y < sc.y + sc.h - 4; y += 5)
+      for (let x = sc.x + 6; x < sc.x + sc.w - 10; x += 9) for (let k = 0; k < 6; k++) if (on(x + k, y)) p.set(x + k, y, deep), on(x + k, y + 1) && p.set(x + k, y + 1, dark);
+    // the sticker, with its lines of small print
+    const sx = sc.x + sc.w / 2 - 12;
+    const sy = sc.y + sc.h + 10;
+    p.rect(sx, sy, 24, 12, 0xffd8d2bd);
+    for (let i = 0; i < 3; i++) p.rect(sx + 3, sy + 3 + i * 3, 14 - i * 3, 1, 0xff6e665a);
+    // the power socket and the cable's stub, low on the case
+    const px = COMPUTER.slot.x + 4;
+    const py = COMPUTER.slot.y - 2;
+    p.rect(px, py, 10, 7, deep);
+    for (const dx of [2, 5, 8]) p.rect(px + dx - 1, py + 2, 1, 3, 0xff8c9494);
+    for (const [x, y] of [[sc.x + 2, sc.y - 6], [sc.x + sc.w - 3, sc.y - 6], [sc.x + 2, sc.y + sc.h + 4], [sc.x + sc.w - 3, sc.y + sc.h + 4]]) p.set(x, y, deep);
+    // moss along the top, where the rain sits
+    for (let x = 0; x < p.w; x++)
+      for (let y = 0; y < p.h; y++) {
+        if (!on(x, y)) continue;
+        if (noise1(x * 0.21, 963) > 0.45) for (let k = 0; k < 2 + Math.floor(noise1(x * 0.5, 964) * 4); k++) on(x, y + k) && p.set(x, y + k, shade(PAL.clearing.grass, 0.3 + hash2(x, k, 965) * 0.4));
+        break;
+      }
+  }
+
+  /** The back of the notice board: plain planks, their grain and gaps, a nail at each end. */
+  function paintBoardBack(p: Pix) {
+    const wood = ramp('#3a2a1c', '#5a4129', '#76583a', '#8f6f4b', '#a8875f');
+    for (let y = 0; y < p.h; y++)
+      for (let x = 0; x < p.w; x++) {
+        if (!(p.get(x, y) >>> 24)) continue;
+        const plank = Math.floor(y / 7);
+        let t = 0.5 + (noise1(x * 0.16 + plank * 13.1, 966) - 0.5) * 0.4 + (hash2(x, y, 967) - 0.5) * 0.1;
+        if (y % 7 === 0) t = 0.05;
+        p.set(x, y, shade(wood, t));
+      }
+    for (let y = 3; y < p.h; y += 7)
+      for (let x = 0; x < p.w; x++) {
+        if (!(p.get(x, y) >>> 24)) continue;
+        p.set(x + 3, y, wood[0]);
+        let e = x;
+        while (e < p.w && p.get(e, y) >>> 24) e++;
+        p.set(e - 4, y, wood[0]);
+        break;
+      }
+  }
+
+  /** The floppies follow the drive (standing up as they fly into the slot); the board stands as the walk's does. */
+  function updateProps() {
+    discs.forEach((d, i) => {
+      const m = props3d.discs[i];
+      if (!d || !m) return;
+      const e = d.t;
+      const p = d.mesh.position;
+      m.position.set(p.x, e > 0 ? p.y + 0.05 : 0.008, p.z);
+      m.rotation.set((-Math.PI / 2) * smooth(0, 0.35, e), e > 0 ? 0 : DISCS[i].a, 0);
+      m.scale.setScalar(1 - 0.5 * smooth(0.6, 1, e));
+      m.userData.dead = e >= 0.98;
+    });
+    const sp = notice.sprite;
+    if (props3d.boardFor !== sp) {
+      for (const m of props3d.board) {
+        scene.remove(m);
+        layers.splice(layers.indexOf(m), 1);
+        m.geometry.dispose();
+      }
+      props3d.board = [];
+      props3d.boardFor = sp;
+      if (sp && notice.mesh) {
+        const ex = extrude(sp.pix, texelAt(NOTICE_D), sp.ax, sp.ay, 0.05, paintBoardBack);
+        const tex = notice.mesh.material.uniforms.map.value as THREE.Texture;
+        for (const [g, t] of [[ex.body, tex], [ex.back, toTexture(ex.backPix, { mips: false })]] as const) {
+          const m = add(solidMesh(g, t), 0, 0, 0);
+          m.matrixAutoUpdate = false;
+          m.userData.playOnly = true;
+          props3d.board.push(m);
+        }
+      }
+    }
+    for (const m of props3d.board) {
+      m.matrix.copy(notice.mesh!.matrix);
+      m.matrixWorldNeedsUpdate = true;
+      m.userData.dead = !notice.on || notice.state === 'broken';
+    }
+  }
+
+  function enterPlay() {
+    buildPlay();
+    playing = true;
+    Object.assign(P, { x: SPAWN.x, z: SPAWN.z, y: 0, vy: 0, vx: 0, vz: 0, yaw: 0, pitch: -0.04, kick: 0, cool: 0.3, walk: 0 });
+    Object.assign(wading, { ring: 0, dry: true, air: false });
+    for (const c of critters) {
+      c.mesh.scale.setScalar(CRIT_SCALE);
+      c.mesh.material.uniforms.lit.value = 0.55;
+    }
+    zoom = 1;
+    aimT = 0;
+    if (!controls) controls = new Controls(o.canvas, (locked) => playing && forest.set({ paused: !locked }));
+    controls.attach();
+    controls.locked = document.pointerLockElement === o.canvas;
+    forest.set({ paused: !controls.touch && !controls.locked });
+    if (water) water.visible = true;
+    for (const l of lids) l.visible = true;
+    // the floor reaches out to the fog on every side, and the sun's shadows reach further round you
+    if (floor) {
+      floor.scale.set(3, 2.4, 1);
+      floor.position.z = -50;
+    }
+    sunCam.left = sunCam.bottom = -30;
+    sunCam.right = sunCam.top = 30;
+    sunCam.updateProjectionMatrix();
+    if (text) {
+      text.material.depthFunc = THREE.LessEqualDepth;
+      text.renderOrder = 0;
+    }
+    offer.t = 0;
+    pinPoint($('pill-say'), 0, 0, 0, false);
+    pinPoint($('pill-take'), 0, 0, 0, false);
+    hud?.setScore(score);
+    lastScreen = '';
+  }
+
+  function exitPlay() {
+    if (!playing) return;
+    playing = false;
+    controls?.detach();
+    forest.set({ paused: false, prompt: null });
+    prompt = null;
+    if (water) water.visible = false;
+    for (const l of lids) l.visible = false;
+    if (puffs) puffs.points.visible = false;
+    while (gibs.length) dropGib(gibs.pop()!);
+    screenBroken = false;
+    if (floor) {
+      floor.scale.set(1, 1, 1);
+      floor.position.z = -68;
+    }
+    sunCam.left = sunCam.bottom = -SHADOW_HALF;
+    sunCam.right = sunCam.top = SHADOW_HALF;
+    sunCam.updateProjectionMatrix();
+    if (text) {
+      text.material.depthFunc = THREE.AlwaysDepth;
+      text.renderOrder = 50;
+    }
+    view.yaw.value = 0;
+    view.lightYaw.value = 0;
+    tiltPx = panPx = 0;
+    zoom = 1;
+    aimT = 0;
+    camera.rotation.set(0, 0, 0);
+    camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan((size.H * K0) / 2));
+    camera.updateProjectionMatrix();
+    for (const c of critters) {
+      c.mesh.scale.setScalar(1);
+      c.mesh.material.uniforms.lit.value = 1;
+      c.x = c.origin.x;
+      c.z = c.origin.y;
+      c.home.copy(c.origin);
+      Object.assign(c, { y: 0, fly: 0, dead: 0, flee: 0, state: 'idle' });
+      c.mesh.userData.dead = false;
+    }
+    spring.live = false;
+    lastScroll = NaN;
+    lastScreen = '';
+  }
+
+  /** Stepping in and out: the picture dissolves to the dark of the wood in dithered steps, then back. */
+  let trans: { dir: 'in' | 'out'; t: number; swapped: boolean } | null = null;
+  function updateTrans(dt: number) {
+    const fu = blit.material.uniforms.fade;
+    if (!trans) {
+      fu.value = 0;
+      return;
+    }
+    trans.t += dt;
+    const outT = reduced ? 0.15 : trans.dir === 'in' ? 0.6 : 0.4;
+    const inT = reduced ? 0.15 : 0.75;
+    if (!trans.swapped) {
+      fu.value = Math.min(1, trans.t / outT);
+      if (trans.t >= outT) {
+        trans.swapped = true;
+        trans.t = 0;
+        if (trans.dir === 'in') enterPlay();
+        else exitPlay();
+      }
+    } else {
+      fu.value = Math.max(0, 1 - trans.t / inT);
+      if (trans.t >= inT) trans = null;
+    }
+  }
+  forest.subscribe(() => {
+    const want = forest.get().playing;
+    const heading = trans ? trans.dir === 'in' : playing;
+    if (want !== heading) trans = { dir: want ? 'in' : 'out', t: 0, swapped: false };
+  });
+
+  /** Moves you towards (nx, nz): round trunks and along the fence. You can wade into the water. */
+  function moveTo(nx: number, nz: number) {
+    const R = 0.22;
+    for (let k = 0; k < 2; k++) {
+      for (const so of nearSolids(nx, nz)) {
+        const dx = nx - so.x;
+        const dz = nz - so.z;
+        const d = Math.hypot(dx, dz);
+        const min = so.r + R;
+        if (d < min && d > 1e-5) {
+          nx = so.x + (dx / d) * min;
+          nz = so.z + (dz / d) * min;
+        }
+      }
+    }
+    const ok = (x: number, z: number) => inBounds(x, z, 0.3);
+    if (ok(nx, nz)) {
+      P.x = nx;
+      P.z = nz;
+    } else if (ok(nx, P.z)) {
+      P.x = nx;
+      P.vz = 0;
+    } else if (ok(P.x, nz)) {
+      P.z = nz;
+      P.vx = 0;
+    } else P.vx = P.vz = 0;
+  }
+
+  /** A ring spreading on the water from (x, z). */
+  function ripple(x: number, z: number, strength: number) {
+    if (!water) return;
+    (water.material.uniforms.ripples.value as THREE.Vector4[])[rippleNext].set(x, z, clock, strength);
+    rippleNext = (rippleNext + 1) % RIPPLES;
+  }
+  const SPLASH = ['#e4eee9', '#bfd2cc', '#93aca6', '#6f8c86'];
+
+  function updatePlayer(dt: number) {
+    const c = controls!;
+    paused = !c.touch && !c.locked;
+    // raising the rifle to the eye, then the scope's view coming in
+    aimT = Math.max(0, Math.min(1, aimT + ((c.zoom && !paused ? 1 : -1) * dt) / 0.2));
+    const scoped = smooth(0.7, 1, aimT);
+    zoom = 1 + 2.4 * scoped;
+    lastTurn = [c.dx, c.dy];
+    if (!paused) {
+      const sens = (c.touch ? 0.0045 : 0.0022) / zoom;
+      P.yaw -= c.dx * sens;
+      P.pitch = Math.max(-0.6, Math.min(0.6, P.pitch - c.dy * sens));
+    }
+    c.dx = c.dy = 0;
+    // through the scope your breathing moves the view, slowly
+    const t = clock;
+    const drift = (k: number) => [Math.sin(k * 0.7) * 0.004 + Math.sin(k * 1.9) * 0.001, Math.sin(k * 1.1 + 1) * 0.003];
+    const [d0, d1] = drift(t - dt);
+    const [e0, e1] = drift(t);
+    P.yaw += (e0 - d0) * scoped;
+    P.pitch += (e1 - d1) * scoped;
+    const wd = waterDist(P.x, P.z);
+    const wet = P.y <= 0 && wd < 0;
+    const depth = wet ? Math.min(1, -wd / 1.1) : 0;
+    const [mx, mz] = paused ? [0, 0] : c.move();
+    const speed = (c.running && aimT < 0.5 ? 4.6 : 2.5) * (1 - depth * 0.45) * (1 - aimT * 0.45);
+    const sy = Math.sin(P.yaw);
+    const cy = Math.cos(P.yaw);
+    // right is (cos, 0, -sin), forward is (-sin, 0, -cos)
+    const wx = (cy * mx - sy * mz) * speed;
+    const wz = (-sy * mx - cy * mz) * speed;
+    const a = 1 - Math.exp(-dt * (P.y > 0 ? 2.5 : 11));
+    P.vx += (wx - P.vx) * a;
+    P.vz += (wz - P.vz) * a;
+    moveTo(P.x + P.vx * dt, P.z + P.vz * dt);
+    if (c.jump && P.y <= 0 && !paused) P.vy = 2.7;
+    c.jump = false;
+    P.vy -= 9.5 * dt;
+    P.y += P.vy * dt;
+    if (P.y <= 0) {
+      P.y = 0;
+      P.vy = 0;
+    }
+    const v = Math.hypot(P.vx, P.vz);
+    P.walk = P.y > 0 ? 0 : Math.min(1, v / 2.5);
+    P.step += dt * v * 2.6;
+    // wading: rings spreading from your legs as you go, a splash with each stride, a big one jumping in
+    if (wet) {
+      wading.ring -= dt;
+      const fx = -sy * 0.18;
+      const fz = -cy * 0.18;
+      if (wading.dry || wading.air) {
+        ripple(P.x, P.z, 1);
+        ripple(P.x + fx, P.z + fz, 0.7);
+        puffs?.burst(tv.set(P.x - sy * 0.35, 0.04, P.z - cy * 0.35), SPLASH, false, wading.air ? 26 : 16);
+        wading.ring = 0.3;
+      } else if ((v > 0.35 && wading.ring <= 0) || wading.ring < -1.4) {
+        ripple(P.x - sy * 0.5, P.z - cy * 0.5, 0.45 + 0.45 * Math.min(1, v / 3));
+        if (v > 0.35) puffs?.burst(tv.set(P.x - sy * 0.6, 0.03, P.z - cy * 0.6), SPLASH, false, 7 + Math.round(v * 2));
+        wading.ring = 0.36 - 0.14 * Math.min(1, v / 4);
+      }
+    }
+    wading.dry = !(wd < 0);
+    wading.air = P.y > 0;
+    // the shot lifts the view a little, and it settles back
+    P.kick *= Math.exp(-dt * 9);
+    const pitch = P.pitch + P.kick;
+    camera.rotation.set(0, P.yaw, 0);
+    camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan((size.H * K0) / 2 / zoom));
+    camera.updateProjectionMatrix();
+    // looking up and down: a shear of the picture (verticals stay vertical), never a tilt of the camera
+    const pm = camera.projectionMatrix;
+    pm.elements[9] = Math.tan(pitch) * pm.elements[5];
+    camera.projectionMatrixInverse.copy(pm).invert();
+    tiltPx = (Math.tan(pitch) * zoom) / K0;
+    panPx = (P.yaw * zoom) / K0;
+    if (c.fire) {
+      c.fire = false;
+      if (!paused && P.cool <= 0) shoot(pitch);
+    }
+    P.cool -= dt;
+    return eye.set(P.x, EYE + P.y - depth * 0.2 + Math.sin(P.step * 2) * 0.02 * P.walk * (1 - aimT), P.z);
+  }
+
+  /** The animal under the crosshair, if a shot would reach it (no trunk in the way); its distance in aimDepth. */
+  function aim(pitch: number): Critter | null {
+    aimDepth = Infinity;
+    if (!critterAtlas || !playing) return null;
+    const cam = camera.position;
+    const fx = -Math.sin(P.yaw);
+    const fz = -Math.cos(P.yaw);
+    const tanP = Math.tan(pitch);
+    const tc = texelAt(CRITTER_D);
+    let best: Critter | null = null;
+    let bd = 60;
+    for (const c of critters) {
+      if (c.dead > 0 || !c.mesh.visible) continue;
+      const p = c.mesh.position;
+      const ox = p.x - cam.x;
+      const oz = p.z - cam.z;
+      const depth = ox * fx + oz * fz;
+      if (depth < 0.3 || depth > bd) continue;
+      // a couple of game pixels' grace all round: small things far off are still fair to hit
+      const tol = (2.2 * depth * K0) / zoom;
+      const side = ox * -fz + oz * fx;
+      const ay = tanP * depth;
+      const oy = p.y - cam.y;
+      if (Math.abs(side) > (c.w * tc * CRIT_SCALE) / 2 + tol || ay < oy - tol || ay > oy + c.box * tc * CRIT_SCALE + tol) continue;
+      if (firstSolid(cam.x, cam.z, fx, fz, depth) !== null) continue;
+      best = c;
+      bd = depth;
+    }
+    aimDepth = best ? bd : Infinity;
+    return best;
+  }
+
+  /** How far along the view the notice board is, if the shot meets it. */
+  function boardHit() {
+    const b = props3d.board[0];
+    if (!b || b.userData.dead) return null;
+    ray.setFromCamera(new THREE.Vector2(0, 0), camera);
+    return ray.intersectObject(b, false)[0]?.distance ?? null;
+  }
+
+  function shoot(pitch: number) {
+    P.cool = 0.62;
+    P.kick += aimT > 0.7 ? 0.03 : 0.05;
+    hud?.fire();
+    gun?.fire();
+    const hit = aim(pitch);
+    const board = boardHit();
+    const cam = camera.position;
+    // the computer: the glass of its screen bursts; anywhere else on the case, sparks
+    ray.setFromCamera(new THREE.Vector2(0, 0), camera);
+    const pc = props3d.pc ? ray.intersectObject(props3d.pc, false)[0] : undefined;
+    if (pc && pc.distance < aimDepth && pc.distance < (board ?? Infinity)) {
+      const t = texelAt(CLEARING.camZ - CLEARING.computer.z);
+      const ix = (pc.point.x - CLEARING.computer.x) / t + COMPUTER.ax - COMPUTER.screen.x;
+      const iy = COMPUTER.ay - pc.point.y / t - COMPUTER.screen.y;
+      const onGlass = ix >= 0 && iy >= 0 && ix < COMPUTER.screen.w && iy < COMPUTER.screen.h && pc.point.z > CLEARING.computer.z - 0.05;
+      if (onGlass && !screenBroken) breakScreen(ix, iy, pc.point);
+      else puffs?.burst(tv.copy(pc.point), ['#fff6c8', '#f2d36a', '#d9d2bc', '#857c68'], false, 14);
+      hud?.hit();
+      return;
+    }
+    // the notice board, if it's nearer than any animal in the way: it bursts, words and all
+    if (board !== null && board < aimDepth && notice.state !== 'broken') {
+      breakNotice();
+      hud?.hit();
+      return;
+    }
+    if (hit) {
+      const tc = texelAt(CRITTER_D) * CRIT_SCALE;
+      const p = hit.mesh.position;
+      const fur = Object.values(CRITTERS[hit.kind].legend);
+      // a puff of smoke and fluff, and it's gone (it comes back later, somewhere else)
+      explode(hit);
+      puffs?.burst(tv.set(p.x, p.y + hit.box * tc * 0.5, p.z), ['#ece6d4', '#d8d2c0', fur[0]], true, 12);
+      hit.dead = 7 + Math.random() * 7;
+      hit.mesh.userData.dead = true;
+      hit.mesh.visible = false;
+      score++;
+      hud?.setScore(score);
+      hud?.hit();
+      tv.set(p.x, p.y + hit.box * tc, p.z).project(camera);
+      // in metres: your eyes are about a person's height above the grass
+      hud?.plusOne((tv.x * 0.5 + 0.5) * size.W, (tv.y * 0.5 + 0.5) * size.H + 10, Math.max(1, Math.round(Math.hypot(p.x - cam.x, p.z - cam.z) * (1.65 / EYE))));
+      return;
+    }
+    // a miss chips bark off the trunk in the way, or kicks up the ground (or the water) where it lands
+    const fx = -Math.sin(P.yaw);
+    const fz = -Math.cos(P.yaw);
+    const tanP = Math.tan(pitch);
+    const ground = tanP < -0.01 ? Math.min(60, cam.y / -tanP) : 60;
+    const trunk = firstSolid(cam.x, cam.z, fx, fz, ground);
+    if (trunk !== null) {
+      const y = cam.y + tanP * trunk;
+      if (y > 0 && y < 4) puffs?.burst(tv.set(cam.x + fx * trunk, y, cam.z + fz * trunk), ['#4a4134', '#615645', '#2c2a26', '#7c9c4b'], false, 16);
+    } else if (tanP < -0.01 && ground < 60) {
+      const gx = cam.x + fx * ground;
+      const gz = cam.z + fz * ground;
+      if (waterDist(gx, gz) < 0) {
+        ripple(gx, gz, 1);
+        puffs?.burst(tv.set(gx, 0.03, gz), SPLASH, false, 20);
+      } else puffs?.burst(tv.set(gx, 0.02, gz), ['#3b2f22', '#5a4632', '#436433', '#7b9655'], false, 18);
+    }
+  }
+
+  /** What E would do here: put the floppy you're looking at into the computer, or take the one in it out. */
+  function updatePrompt() {
+    const c = controls!;
+    const fx = -Math.sin(P.yaw);
+    const fz = -Math.cos(P.yaw);
+    let best = -1;
+    let bd = 2.1;
+    discs.forEach((d, i) => {
+      if (!d || d.t > 0) return;
+      const dx = d.rest.x - P.x;
+      const dz = d.rest.z - P.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist < bd && (dx * fx + dz * fz) / Math.max(dist, 1e-3) > 0.5) {
+        best = i;
+        bd = dist;
+      }
+    });
+    const atPc = loaded !== null && Math.hypot(CLEARING.computer.x - P.x, CLEARING.computer.z - P.z) < 2.4;
+    const next = paused ? null : best >= 0 ? `Insert “${projects[best].title}”` : atPc ? `Eject “${projects[loaded!].title}”` : null;
+    if (next !== prompt) {
+      prompt = next;
+      forest.set({ prompt });
+    }
+    if (c.use) {
+      c.use = false;
+      if (best >= 0) forest.set({ selected: best });
+      else if (atPc) forest.set({ selected: null });
+    }
+  }
+
+  /**
+   * An animal hit: it bursts like the notice board does, its own pixels in pieces that tumble, bounce and lie
+   * in the grass, with a spray of cartoon-bright red (jam, not gore) that spatters round it; later it all sinks.
+   */
+  const gibs: { sh: Shatter; age: number; sunk: boolean }[] = [];
+  /** In pill mode the animals are bigger and kept bright in the shade, so you can find them in the wood. */
+  const CRIT_SCALE = 1.7;
+  const RED: [number, number, number][] = [[0.92, 0.18, 0.32], [1, 0.45, 0.58], [0.74, 0.1, 0.22], [1, 0.7, 0.76]];
+  function explode(c: Critter) {
+    if (!critterAtlas || !critterPix) return;
+    const r = critterAtlas.rects[c.rect];
+    // painted at twice the size (each pixel four), so the bits it throws are finer than the animal is chunky
+    const src = new Pix(r.w * 2, r.h * 2);
+    for (let y = 0; y < r.h * 2; y++) for (let x = 0; x < r.w * 2; x++) src.set(x, y, critterPix.get(r.x + (c.flip ? r.w - 1 - (x >> 1) : x >> 1), r.y + (y >> 1)));
+    const sh = new Shatter(src, cut(src, 7, 301 + gibs.length), 260);
+    fixFacing(sh.mesh);
+    scene.add(sh.mesh, sh.spray.points);
+    const t = (texelAt(CRITTER_D) / 2) * CRIT_SCALE;
+    const rx = Math.cos(P.yaw);
+    const rz = -Math.sin(P.yaw);
+    const b = c.mesh.position;
+    const place = (x: number, y: number, out: THREE.Vector3) => out.set(b.x + rx * (x - r.w) * t, b.y + (r.h * 2 - y - 0.5) * t, b.z + rz * (x - r.w) * t);
+    const from = place(r.w, r.h * 1.2, new THREE.Vector3());
+    sh.burst(place, t, new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), P.yaw), from, 500 + Math.floor(Math.random() * 1000));
+    for (let i = 0; i < 90; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 0.6 + Math.random() * 2.4;
+      sh.spray.emit(from.x, from.y, from.z, Math.cos(a) * sp, 0.8 + Math.random() * 3.2, Math.sin(a) * sp, RED[i % RED.length], t * (1 + Math.random() * 1.6), 3 + Math.random() * 3, 0);
+    }
+    gibs.push({ sh, age: 0, sunk: false });
+    if (gibs.length > 5) dropGib(gibs.shift()!);
+  }
+  function dropGib(g: { sh: Shatter }) {
+    scene.remove(g.sh.mesh, g.sh.spray.points);
+    g.sh.dispose();
+  }
+  function updateGibs(dt: number) {
+    for (let i = gibs.length - 1; i >= 0; i--) {
+      const g = gibs[i];
+      g.age += dt;
+      g.sh.update(dt);
+      if (g.age > 7 && !g.sunk) {
+        g.sunk = true;
+        g.sh.sink();
+      }
+      if (g.age > 11) {
+        dropGib(g);
+        gibs.splice(i, 1);
+      }
+    }
+  }
+
+  /**
+   * The monitor's glass, shot: it bursts into shards that fly and tumble with a glitter of glass and a few
+   * sparks, and the screen is left black and cracked, the fractures running out from where it was hit.
+   */
+  function breakScreen(ix: number, iy: number, at: THREE.Vector3) {
+    if (!screen.pix || !screen.tex) return;
+    screenBroken = true;
+    const glass = new Pix(screen.pix.w, screen.pix.h);
+    // the shards are glass: the picture seen through a cold grey sheen, so they fall like glass and not like leaves
+    for (let i = 0; i < glass.data.length; i++) glass.data[i] = mix(screen.pix.data[i] | 0xff000000, hex('#7a8794'), 0.6);
+    const sh = new Shatter(glass, cut(glass, 18, 811), 320);
+    fixFacing(sh.mesh);
+    scene.add(sh.mesh, sh.spray.points);
+    const t = texelAt(CLEARING.camZ - CLEARING.computer.z);
+    const sc = COMPUTER.screen;
+    const place = (x: number, y: number, out: THREE.Vector3) => out.set(CLEARING.computer.x + (sc.x + x - COMPUTER.ax) * t, (COMPUTER.ay - sc.y - y) * t, CLEARING.computer.z + 0.03);
+    sh.burst(place, t, new THREE.Quaternion(), tv.set(at.x, at.y, CLEARING.computer.z - 0.3), 900 + Math.floor(Math.random() * 99));
+    for (let i = 0; i < 70; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 0.6 + Math.random() * 2;
+      const g = 0.75 + Math.random() * 0.25;
+      sh.spray.emit(at.x, at.y, at.z + 0.04, Math.cos(a) * sp, 0.5 + Math.random() * 2.5, 0.6 + Math.random() * 1.8, [g * 0.85, g, g], t * (0.6 + Math.random()), 2 + Math.random() * 2.5, 0);
+    }
+    gibs.push({ sh, age: 0, sunk: false });
+    puffs?.burst(tv.copy(at), ['#fff6c8', '#f2d36a', '#ffffff'], false, 14);
+    // what's left in the frame: black, cracked from the hit, a few teeth of glass at the edges
+    const p = screen.pix;
+    const rnd = mulberry(4040 + Math.round(ix * 7 + iy));
+    p.data.fill(hex('#060a08'));
+    for (let y = 0; y < p.h; y++)
+      for (let x = 0; x < p.w; x++) {
+        const e = Math.min(x, y, p.w - 1 - x, p.h - 1 - y);
+        if (e < 3 && rnd() < 0.55 - e * 0.15) p.set(x, y, rnd() < 0.5 ? hex('#3a5a50') : hex('#6f9a8c'));
+      }
+    for (let k = 0; k < 10; k++) {
+      let x = ix;
+      let y = iy;
+      const a0 = (k / 10) * Math.PI * 2 + rnd() * 0.5;
+      for (let i = 0; i < 46; i++) {
+        const a = a0 + (rnd() - 0.5) * 0.9;
+        x += Math.cos(a) * 1.2;
+        y += Math.sin(a) * 1.2;
+        p.set(Math.round(x), Math.round(y), i < 8 ? hex('#cfe6dc') : hex('#86ab9e'));
+      }
+    }
+    for (let y = -2; y <= 2; y++) for (let x = -2; x <= 2; x++) if (x * x + y * y < 6) p.set(Math.round(ix) + x, Math.round(iy) + y, hex('#000000'));
+    screen.tex.needsUpdate = true;
+    lastScreen = 'broken';
+  }
+
+  /** Back somewhere out of sight. */
+  function respawn(c: Critter) {
+    const cam = camera.position;
+    for (let i = 0; i < 60; i++) {
+      const x = BOUNDS.x0 + 2 + Math.random() * (BOUNDS.x1 - BOUNDS.x0 - 4);
+      const z = BOUNDS.z0 + 2 + Math.random() * (BOUNDS.z1 - BOUNDS.z0 - 4);
+      if (waterDist(x, z) < 0.8 || Math.hypot(x - cam.x, z - cam.z) < 14) continue;
+      c.x = x;
+      c.z = z;
+      c.home.set(x, z);
+      break;
+    }
+    Object.assign(c, { y: 0, fly: 0, flee: 0, dead: 0, state: 'idle', t: 1 + Math.random() });
+    c.mesh.userData.dead = false;
+  }
+
+  /** The animals in pill mode: they wander, bolt when you come close, and birds take off and fly away. */
+  function updatePlayCritters(dt: number, now: number) {
+    if (!critterAtlas) return;
+    const cam = camera.position;
+    const rx = Math.cos(P.yaw);
+    const rz = -Math.sin(P.yaw);
+    for (const c of critters) {
+      const def = CRITTERS[c.kind];
+      if (c.dead > 0) {
+        c.dead -= dt;
+        if (c.dead <= 0) respawn(c);
+        else continue;
+      }
+      const dx = c.x - cam.x;
+      const dz = c.z - cam.z;
+      if (dx * dx + dz * dz < (c.kind === 3 ? 14 : 9) && c.flee <= 0 && c.fly === 0) {
+        c.flee = 1.8;
+        c.state = 'move';
+        c.t = 1.8;
+        c.head = Math.atan2(dz, dx) + (Math.random() - 0.5) * 0.9;
+        if (c.kind === 3) c.fly = 0.01;
+      }
+      c.flee -= dt;
+      c.t -= dt;
+      if (c.fly > 0) {
+        c.fly += dt;
+        c.y += dt * (0.8 + c.fly * 0.9);
+        c.x += Math.cos(c.head) * 2.4 * dt;
+        c.z += Math.sin(c.head) * 2.4 * dt;
+        c.phase += dt * 20;
+        // flown off over the trees: back later, elsewhere
+        if (c.y > 4.5) {
+          c.dead = 4 + Math.random() * 5;
+          c.mesh.userData.dead = true;
+          continue;
+        }
+      } else {
+        if (c.t <= 0) {
+          if (c.state === 'idle') {
+            c.state = 'move';
+            c.t = 0.6 + Math.random() * 1.6;
+            const hx = c.home.x - c.x;
+            const hz = c.home.y - c.z;
+            c.head = hx * hx + hz * hz > 16 ? Math.atan2(hz, hx) : Math.random() * Math.PI * 2;
+          } else {
+            c.state = 'idle';
+            c.t = 0.8 + Math.random() * 2.6;
+          }
+        }
+        if (c.state === 'move') {
+          const sp = def.speed * 0.4 * (c.flee > 0 ? 2.6 : 1);
+          const nx = c.x + Math.cos(c.head) * sp * dt;
+          const nz = c.z + Math.sin(c.head) * sp * dt;
+          if (waterDist(nx, nz) < 0.3 || !inBounds(nx, nz, 0.5)) c.head += Math.PI * (0.6 + Math.random() * 0.5);
+          else {
+            c.x = nx;
+            c.z = nz;
+          }
+          c.phase += dt * (def.hop ? 9 : 12) * (c.flee > 0 ? 1.6 : 1);
+        }
+      }
+      const moving = c.state === 'move' || c.fly > 0;
+      const frames = moving ? def.move : def.idle;
+      const fi = moving ? frames[Math.floor(c.phase) % frames.length] : frames[Math.floor((now + c.phase) * 1.5) % frames.length];
+      c.rect = critterAtlas.index[c.kind][fi];
+      const r = critterAtlas.rects[c.rect];
+      // sprites face right: flip when it heads left across your view
+      c.flip = Math.cos(c.head) * rx + Math.sin(c.head) * rz < 0;
+      setFrame(c.mesh, r, critterAtlas.w, critterAtlas.h, c.flip, c.box);
+      const hop = moving && def.hop && c.fly === 0 ? Math.abs(Math.sin(c.phase * Math.PI * 0.5)) * def.hop : 0;
+      c.mesh.position.set(c.x, c.y + hop, c.z);
+    }
+  }
+
+  function updatePlayWorld(dt: number, now: number) {
+    if (water) {
+      const wu = water.material.uniforms;
+      wu.time.value = now;
+      wu.res.value.set(size.W, size.H);
+    }
+    puffs?.update(dt);
+    updateGibs(dt);
+  }
+
+  /**
+   * After the fog: the rifle (its own pass, laid over the view), then the scope's glass if it's up, then the
+   * flat HUD. The blit shows whichever frame ends up with all of it.
+   */
+  function drawHud(dt: number) {
+    if (!hud || !controls || !gun || !scope || !lens) return;
+    const scoped = aimT > 0.75;
+    const shade = Math.min(1.05, 0.42 + air.ambient * 0.62);
+    gun.update(dt, { W: size.W, H: size.H, walk: P.walk, shade, aim: aimT, turn: lastTurn, visible: !paused && !scoped });
+    if (!paused && !scoped) gun.render(renderer, fogged);
+    let out = fogged;
+    if (scoped) {
+      if (lens.width !== size.W || lens.height !== size.H) lens.setSize(size.W, size.H);
+      // the eye drifts off the scope's axis as the rifle sways and kicks: the shadow comes in from that side
+      const k = 1 - Math.exp(-dt * 8);
+      scopeSway.x += (Math.max(-12, Math.min(12, -lastTurn[0] * 0.5)) - scopeSway.x) * k;
+      scopeSway.y += (Math.max(-10, Math.min(10, lastTurn[1] * 0.5)) - scopeSway.y) * k;
+      const su = scope.uniforms;
+      su.frame.value = fogged.texture;
+      su.lowRes.value.set(size.W, size.H);
+      su.open.value = smooth(0.75, 1, aimT);
+      su.shift.value.set(Math.round(scopeSway.x), Math.round(scopeSway.y - gun.kick * 16));
+      // where the sun is, seen from here, for the glare on the glass
+      tv.set(-SUN[0], -SUN[1], -SUN[2]).applyQuaternion(camera.quaternion.clone().invert());
+      su.sun.value.set(tv.x, tv.y, 0.25 + Math.max(0, -tv.z) * 0.75);
+      su.shade.value = shade;
+      renderer.setRenderTarget(lens);
+      renderer.render(scope.scene, postCam);
+      out = lens;
+    } else scopeSway.set(0, 0);
+    const st = controls.stick;
+    const toG = (x: number, y: number): [number, number] => [(x * size.devW) / size.cssW / size.scale + size.offX / size.scale, size.H - ((y * size.devH) / size.cssH + size.offY) / size.scale];
+    let stick = null;
+    if (st.id >= 0) {
+      const [x0, y0] = toG(st.x0, st.y0);
+      const [x, y] = toG(st.x, st.y);
+      stick = { on: true, x0, y0, x, y };
+    }
+    hud.update(dt, { W: size.W, H: size.H, hot: !paused && !!aim(P.pitch + P.kick), show: !paused, aim: aimT, muzzle: gun.muzzle(size.W, size.H), stick });
+    renderer.setRenderTarget(out);
+    renderer.autoClear = false;
+    renderer.render(hud.scene, hud.cam);
+    renderer.autoClear = true;
+    blit.material.uniforms.frame.value = out.texture;
+  }
+
   // --- the loop -----------------------------------------------------------------------------------------
   let ready = false;
   const slowFrames: [number, number, number][] = [];
@@ -1390,8 +2546,10 @@ export function createForest(o: Opts) {
     lf.set(...SUN);
     lr.crossVectors(lf, new THREE.Vector3(0, 1, 0)).normalize();
     lu.crossVectors(lr, lf).normalize();
-    focus.set(camera.position.x, 1.5, camera.position.z - 13);
-    const texel = (2 * SHADOW_HALF) / SHADOW_SIZE;
+    // in pill mode it looks where you look, and is drawn every frame (the sprites turn with you)
+    if (playing) focus.set(camera.position.x, 1.5, camera.position.z);
+    else focus.set(camera.position.x, 1.5, camera.position.z - 13);
+    const texel = (2 * sunCam.right) / SHADOW_SIZE;
     const fx = focus.dot(lr);
     const fy = focus.dot(lu);
     focus.addScaledVector(lr, Math.round(fx / texel) * texel - fx).addScaledVector(lu, Math.round(fy / texel) * texel - fy);
@@ -1414,12 +2572,16 @@ export function createForest(o: Opts) {
     if (floor) floor.visible = false;
     if (dust) dust.visible = false;
     led.visible = false;
+    if (water) water.visible = false;
+    const puffsOn = puffs?.points.visible ?? false;
+    if (puffs) puffs.points.visible = false;
     // the board's pieces and their spray read the shadow map, so they mustn't draw into it
     const sh = notice.shatter;
     const shards = sh?.mesh.visible ?? false;
     if (sh) sh.mesh.visible = sh.spray.points.visible = false;
+    for (const g of gibs) g.sh.mesh.visible = g.sh.spray.points.visible = false;
     // the notice board is drawn in the sharp pass, but its shadow still falls in the forest
-    const board = notice.mesh && notice.on && notice.state !== 'broken';
+    const board = notice.mesh && notice.on && notice.state !== 'broken' && !playing;
     if (board) notice.mesh!.visible = true;
     renderer.setRenderTarget(shadow);
     renderer.render(scene, sunCam);
@@ -1434,6 +2596,9 @@ export function createForest(o: Opts) {
     if (floor) floor.visible = true;
     if (dust) dust.visible = true;
     led.visible = true;
+    if (water) water.visible = playing;
+    if (puffs) puffs.points.visible = puffsOn;
+    for (const g of gibs) g.sh.mesh.visible = g.sh.spray.points.visible = true;
     light.shadowMatrix.value.copy(bias).multiply(sunCam.projectionMatrix).multiply(sunCam.matrixWorldInverse);
   }
 
@@ -1441,12 +2606,12 @@ export function createForest(o: Opts) {
   function mirrorPass(now: number) {
     if (!floor) return;
     const fl = floor.material.uniforms;
-    const wet = smooth(-8, -16, camera.position.z);
+    const wet = playing ? 1 : smooth(-8, -16, camera.position.z);
     fl.wet.value = wet;
     fl.time.value = now;
     const cz = camera.position.z;
     const cxp = camera.position.x;
-    const ahead = PUDDLES.some(([px, pz]) => pz < cz - 0.3 && pz > cz - 24 && Math.abs(px - cxp) < 7);
+    const ahead = playing || PUDDLES.some(([px, pz]) => pz < cz - 0.3 && pz > cz - 24 && Math.abs(px - cxp) < 7);
     fl.wet.value = ahead ? wet : 0;
     if (wet <= 0 || !ahead) return;
     mirrorCam.copy(camera);
@@ -1454,18 +2619,35 @@ export function createForest(o: Opts) {
     mirrorCam.updateMatrixWorld();
     mirrorCam.projectionMatrix.copy(camera.projectionMatrix);
     mirrorCam.projectionMatrixInverse.copy(camera.projectionMatrixInverse);
+    const sku = (sky.material as THREE.ShaderMaterial).uniforms;
+    if (playing) {
+      // the view from under the water shears the other way, and the sky is drawn at its half size
+      mirrorCam.projectionMatrix.elements[9] *= -1;
+      mirrorCam.projectionMatrixInverse.copy(mirrorCam.projectionMatrix).invert();
+      sku.tilt.value = -tiltPx / 2;
+      sku.pan.value = panPx / 2;
+      sku.res.value.set(Math.ceil(size.W / 2), Math.ceil(size.H / 2));
+      for (const h of playHide) h.visible = false;
+    }
     floor.visible = false;
     if (flora) flora.visible = false;
     renderer.setRenderTarget(mirrored);
     renderer.render(scene, mirrorCam);
     floor.visible = true;
     if (flora) flora.visible = true;
+    if (playing) {
+      sku.tilt.value = tiltPx;
+      sku.pan.value = panPx;
+      sku.res.value.set(size.W, size.H);
+      for (const h of playHide) h.visible = true;
+    }
     const mu = fogMirror.material.uniforms;
     const fu = fog.material.uniforms;
     for (const k of ['fogColor', 'camPos', 'projInv', 'viewInv'] as const) mu[k].value.copy(fu[k].value);
     for (const k of ['density', 'falloff', 'shafts'] as const) mu[k].value = fu[k].value;
     mu.res.value.set(Math.ceil(size.W / 2), Math.ceil(size.H / 2));
     mu.camPos.value.copy(mirrorCam.position);
+    mu.projInv.value.copy(mirrorCam.projectionMatrixInverse);
     mu.viewInv.value.copy(mirrorCam.matrixWorld);
     renderer.setRenderTarget(mirroredFog);
     renderer.render(mirrorFogScene, postCam);
@@ -1480,18 +2662,24 @@ export function createForest(o: Opts) {
     clock = now;
 
     const s = o.scroll();
-    const target = cameraAt(s);
-    const atClearing = Math.abs(target.z - CLEARING.camZ) < 0.6;
-    // walking down into the clearing, the rest of the flick is caught there (never on the way back)
-    const from = lastScroll;
-    lastScroll = s;
-    if (ready && o.hold && from < stages.a && s >= stages.a && o.hold(stages.a)) lastScroll = stages.a;
-    const at = follow(target, dt, !(Math.abs(s - from) < window.innerHeight * 1.5));
-    // the board bursting gives the view a short, dying jolt
-    if (notice.shake > 0) {
-      const k = (notice.shake / 0.4) ** 2 * 0.035;
-      at.x += (Math.random() - 0.5) * k;
-      at.y += (Math.random() - 0.5) * k;
+    updateTrans(dt);
+    let atClearing = false;
+    let at: THREE.Vector3;
+    if (playing) at = updatePlayer(dt);
+    else {
+      const target = cameraAt(s);
+      atClearing = Math.abs(target.z - CLEARING.camZ) < 0.6;
+      // walking down into the clearing, the rest of the flick is caught there (never on the way back)
+      const from = lastScroll;
+      lastScroll = s;
+      if (ready && o.hold && from < stages.a && s >= stages.a && o.hold(stages.a)) lastScroll = stages.a;
+      at = follow(target, dt, !(Math.abs(s - from) < window.innerHeight * 1.5));
+      // the board bursting gives the view a short, dying jolt
+      if (notice.shake > 0) {
+        const k = (notice.shake / 0.4) ** 2 * 0.035;
+        at.x += (Math.random() - 0.5) * k;
+        at.y += (Math.random() - 0.5) * k;
+      }
     }
 
     camera.position.copy(at);
@@ -1523,24 +2711,41 @@ export function createForest(o: Opts) {
     su.edge.value.copy(air.zenith);
     su.cover.value = air.clouds;
     su.time.value = now;
+    su.tilt.value = playing ? tiltPx : 0;
+    su.pan.value = playing ? panPx : 0;
+    view.lightYaw.value = playing ? LIGHT_YAW : 0;
+    view.yaw.value = playing ? P.yaw : 0;
 
     for (const m of layers) {
-      // the hollow only shows once you've left the clearing: from the walk its tall wall stood over the wood
-      const hollow = m.userData.hollow === true && camera.position.z > CLEARING.camZ - 0.8;
-      m.visible = !hollow && !m.userData.hidden && (m.userData.always === true || camera.position.z - m.position.z > 0.02);
-      m.material.uniforms.appear.value = m.userData.born < 0 ? 1 : clamp01((now - m.userData.born) / 0.5);
+      const u = m.userData;
+      if (playing) m.visible = !u.walkOnly && !u.hidden && !u.offPlay && !u.dead;
+      else {
+        // the hollow only shows once you've left the clearing: from the walk its tall wall stood over the wood
+        const hollow = u.hollow === true && camera.position.z > CLEARING.camZ - 0.8;
+        m.visible = !u.playOnly && !hollow && !u.hidden && (u.always === true || camera.position.z - m.position.z > 0.02);
+      }
+      m.material.uniforms.appear.value = u.born < 0 ? 1 : clamp01((now - u.born) / 0.5);
     }
 
     updateDrive(now);
     updateScreen(now);
-    updateCritters(dt, now);
-    updateNotice(dt);
+    if (playing) {
+      updatePlayCritters(dt, now);
+      updatePlayWorld(dt, now);
+      updateNotice(dt);
+      updateProps();
+      updatePrompt();
+    } else {
+      updateCritters(dt, now);
+      updateNotice(dt);
+      updateOffer(dt, s, at);
+    }
     if (dust) (dust.material as THREE.ShaderMaterial).uniforms.time.value = now;
     if (cat.mesh && cat.open && cat.shut) {
       const cycle = now % 4.2;
       cat.mesh.material.uniforms.map.value = cycle > 4.02 || (cycle > 3.78 && cycle < 3.9) ? cat.shut : cat.open;
     }
-    placePins(atClearing, at.z < -40 && at.z > -78);
+    if (!playing) placePins(atClearing, at.z < -40 && at.z > -78);
 
     shadowPass();
     mirrorPass(now);
@@ -1548,8 +2753,11 @@ export function createForest(o: Opts) {
     renderer.render(scene, camera);
     renderer.setRenderTarget(fogged);
     renderer.render(fogScene, postCam);
+    if (playing) drawHud(dt);
+    if (!playing) blit.material.uniforms.frame.value = fogged.texture;
     renderer.setRenderTarget(null);
     renderer.render(blitScene, postCam);
+    if (playing) return;
     // the words, sharp, over the pixels, through the same camera and the same crop
     updateBoards();
     updateLabels();
@@ -1664,13 +2872,14 @@ export function createForest(o: Opts) {
   window.addEventListener('resize', onLayout);
   resize();
   tick();
-  if (process.env.NODE_ENV !== 'production') Object.assign(window, { __forest: { camera, stages, size, scene, layers, fog: fog.material.uniforms, light, atmos, renderer, main, fogged } });
+  if (process.env.NODE_ENV !== 'production') Object.assign(window, { __forest: { camera, stages, size, scene, layers, fog: fog.material.uniforms, light, atmos, renderer, main, fogged, P, store: forest, notice, critters, play: () => ({ playing, score, controls, aim: () => aim(P.pitch + P.kick), solids }) } });
 
   return {
     measure,
     dispose() {
       disposed = true;
       cancelAnimationFrame(raf);
+      controls?.detach();
       clearTimeout(fontWait);
       painterInbox.listener = null;
       ro.disconnect();

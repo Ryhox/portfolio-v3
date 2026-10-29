@@ -344,6 +344,35 @@ export function catSprite(blink: boolean): Pix {
 }
 
 /**
+ * The cat holding out a paw with a pill on it, laid over the sitting cat (same grid, wider to the right).
+ * Frame 0 is the paw on its way up, frame 1 held out. Spans of [row, x0, x1, colour key].
+ */
+const PAW: [number, number, number, string][][] = [
+  [
+    [12, 21, 22, 'Q'], [12, 23, 24, 'W'], [13, 20, 22, 'P'], [13, 23, 25, 'w'], [14, 21, 22, 'R'], [14, 23, 24, 'v'],
+    [15, 19, 25, 'r'], [16, 17, 25, 'k'], [16, 17, 18, 'r'], [17, 16, 21, 'k'], [17, 16, 16, 'r'],
+  ],
+  [
+    [9, 24, 25, 'Q'], [9, 26, 27, 'W'], [10, 23, 25, 'P'], [10, 26, 28, 'w'], [11, 24, 25, 'R'], [11, 26, 27, 'v'],
+    [12, 22, 28, 'r'], [13, 20, 28, 'k'], [13, 20, 21, 'r'], [14, 18, 25, 'k'], [14, 18, 19, 'r'], [15, 16, 22, 'k'], [15, 16, 17, 'r'], [16, 15, 19, 'k'],
+    [13, 28, 28, 'p'],
+  ],
+];
+export const PAW_W = 32;
+/** Where the pill lies on the held-out paw, in the cat's pixels. */
+export const PILL_AT = { x: 25.5, y: 9 };
+
+export function catPawSprite(frame: number): Pix {
+  const p = new Pix(PAW_W, CAT_SIZE.h);
+  const cols: Record<string, number> = {
+    k: PAL.hollow.cat[0], r: PAL.hollow.cat[2], p: hex('#5a3434'),
+    P: hex('#b8392c'), Q: hex('#d9705a'), R: hex('#7c2620'), w: hex('#e9e1d0'), W: hex('#fbf6e8'), v: hex('#b9ac8e'),
+  };
+  for (const [y, x0, x1, c] of PAW[frame]) for (let x = x0; x <= x1; x++) p.set(x, y, cols[c]);
+  return p;
+}
+
+/**
  * The cat's hollow, near layer: a mossy stump with roots in the grass, a toadstool or two,
  * and shade towards you where the footer sits. The stump top is at `top` (pixels above the ground row).
  */

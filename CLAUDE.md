@@ -23,6 +23,22 @@ old computer and the project discs, the cat's hollow (footer). Next.js 16, vanil
   in a full-resolution pass after the pixels, depth-tested against the forest. The page's real links (`data-pin`) ride on top.
   The disc names are painted on each floppy's label in the same pass. The footer is plain page text.
 - Page elements pinned over the forest each frame: disc buttons and the project video on the monitor's glass.
+- Pill mode (`src/scene/play.ts`, `world.ts`, `art/gear.ts`): a second after you reach the cat she holds out a paw with a
+  pill ("Stay a while?" + Take, `components/Pill.tsx`). Take dissolves you into the meadow where the walk starts, free to
+  roam in first person inside an invisible fence (`BOUNDS`); the wood carries on past it into the fog. Done the 2.5D way:
+  the camera only turns (yaw), every sprite turns with it (`view.yaw` in `gl.ts`), looking up/down is a projection shear
+  so trees never lean. Secrets only there: a lake behind the start, a river down the far left, a pond with a fairy ring.
+  Walk-only / play-only meshes are flagged `walkOnly` / `playOnly`; the walk must look exactly as it did.
+  Favicons: cat (`app/icon.svg`), pill in pill mode.
+- In pill mode things are real 3D (`solid.ts`): trees are round trunks with crowns of leaf-clump cards, the stump is
+  lathed, the computer and notice board are their sprites pushed out into slabs (painted backs), floppies are flat boxes
+  with their names. Small things (grass, flowers, animals, the cat) stay sprites. Every sprite is lit as if it faced
+  the sun (`view.lightYaw`), so the light never changes as you turn.
+- The rifle is a 3D model (`gun.ts`, no hands), its own pass laid over the view; right-click raises it to a realistic
+  scope (scope pass in `play.ts`: tunnel-in, lens bend, colour fringe, scope shadow, glare, duplex reticle). The
+  eyepiece shows the live view. Hits: hit marker, "+1" with the distance ("23m!"), the animal bursts into its own
+  pixels with cartoon-red spray (jam, not gore). The notice board and the monitor's glass can be shot to pieces.
+  E puts a floppy into the computer. You can wade into the water (rings, splashes). Esc shows a wooden sign menu.
 
 ## The user's rules (keep this list current)
 - Professional, whimsical, hazy-film mood. Not gamey.

@@ -5,9 +5,14 @@ export type ForestState = {
   hovered: number | null;
   /** The disc that is actually in the drive (after its little trip). */
   loaded: number | null;
+  /** Pill mode: walking about in the wood. Paused while the mouse is let go (Esc). */
+  playing: boolean;
+  paused: boolean;
+  /** What E does where you stand in pill mode (put a floppy in, take it out), if anything. */
+  prompt: string | null;
 };
 
-let state: ForestState = { selected: null, hovered: null, loaded: null };
+let state: ForestState = { selected: null, hovered: null, loaded: null, playing: false, paused: false, prompt: null };
 const listeners = new Set<() => void>();
 
 export const forest = {

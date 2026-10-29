@@ -10,10 +10,10 @@ export const TREE_D = 8;
 
 export type TreeKind = 'oak' | 'beech' | 'birch' | 'young' | 'ancient';
 
-const BEECH_BARK = ramp('#2c2e2a', '#43463f', '#5d6157', '#787c70', '#959889');
-const BIRCH_BARK = ramp('#2a2723', '#8f8c84', '#c9c5b9', '#e2ded2', '#f1eee5');
+export const BEECH_BARK = ramp('#2c2e2a', '#43463f', '#5d6157', '#787c70', '#959889');
+export const BIRCH_BARK = ramp('#2a2723', '#8f8c84', '#c9c5b9', '#e2ded2', '#f1eee5');
 
-type Spec = {
+export type Spec = {
   w: number;
   h: number;
   trunkW: number;
@@ -28,7 +28,7 @@ type Spec = {
   limbs: number;
 };
 
-const SPECS: Record<TreeKind, Spec> = {
+export const SPECS: Record<TreeKind, Spec> = {
   oak: { w: 176, h: 250, trunkW: 18, crown: [88, 84, 72, 54], rMin: 9, rMax: 17, count: 46, bark: PAL.mid.bark, leaf: PAL.mid.leaf, moss: PAL.mid.moss, flare: 22, limbs: 3 },
   beech: { w: 140, h: 276, trunkW: 14, crown: [70, 92, 56, 72], rMin: 8, rMax: 15, count: 42, bark: BEECH_BARK, leaf: PAL.mid.leaf, flare: 14, limbs: 2 },
   birch: { w: 112, h: 262, trunkW: 9, crown: [56, 96, 42, 64], rMin: 6, rMax: 11, count: 40, bark: BIRCH_BARK, leaf: PAL.edge.leaf, flare: 8, limbs: 2 },

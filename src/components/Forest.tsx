@@ -3,6 +3,7 @@
 import Lenis from 'lenis';
 import { useEffect, useRef, useState } from 'react';
 import { createForest } from '@/scene/engine';
+import { forest } from '@/scene/store';
 
 /** The fixed canvas behind the page, and the smooth scroll that walks you through it. */
 export default function Forest() {
@@ -66,12 +67,34 @@ export default function Forest() {
       document.documentElement.dataset.forest = 'failed';
     }
     if (process.env.NODE_ENV !== 'production') Object.assign(window, { __lenis: lenis });
+    // pill mode: the page steps aside, the scroll stops where it is, and the tab shows the pill
+    let wasPlaying = false;
+    const unplay = forest.subscribe(() => {
+      const { playing, paused } = forest.get();
+      const root = document.documentElement;
+      if (playing && paused) root.dataset.paused = '';
+      else delete root.dataset.paused;
+      if (playing === wasPlaying) return;
+      wasPlaying = playing;
+      if (playing) {
+        root.dataset.play = '';
+        lenis?.stop();
+      } else {
+        delete root.dataset.play;
+        lenis?.start();
+      }
+      for (const l of document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]')) {
+        l.dataset.walk ??= l.href;
+        l.href = playing ? '/icon-pill.svg' : l.dataset.walk;
+      }
+    });
     const remeasure = () => engine?.measure();
     document.fonts?.ready.then(remeasure);
     window.addEventListener('load', remeasure);
     return () => {
       window.removeEventListener('load', remeasure);
       release?.();
+      unplay();
       engine?.dispose();
       lenis?.destroy();
     };

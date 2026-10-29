@@ -64,7 +64,7 @@ export const light = {
   lampColor: { value: new THREE.Vector3() },
 };
 
-const LIGHT = /* glsl */ `
+export const LIGHT = /* glsl */ `
 uniform sampler2D shadowMap;
 uniform mat4 shadowMatrix;
 uniform vec3 sunDir;
@@ -85,14 +85,46 @@ vec3 lamp(vec3 wp) {
   return lampColor * lampPos.w / (1.0 + dot(d, d) * 7.0);
 }`;
 
+/** The view's turn about the upright axis. Zero on the walk (the camera never turns); in pill mode it follows you. */
+export const view = { yaw: { value: 0 }, lightYaw: { value: 0 } };
+
 const LAYER_VERT = /* glsl */ `
 uniform vec4 uvRect;
+uniform float yaw;
+uniform float lightYaw;
+#ifdef BATCHED
+attribute vec3 anchor;
+#endif
 varying vec2 vUv;
 varying vec3 vWorld;
+vec3 turn(vec3 p, vec3 a, float t) {
+  vec3 d = p - a;
+  float c = cos(t);
+  float s = sin(t);
+  return a + vec3(d.x * c + d.z * s, d.y, -d.x * s + d.z * c);
+}
 void main() {
   vUv = uvRect.xy + uv * uvRect.zw;
-  vec4 w = modelMatrix * vec4(position, 1.0);
-  vWorld = w.xyz;
+  vec3 p = position;
+  vec3 pl = position;
+#ifdef FACE
+  // every sprite turns about its own upright axis to lie flat to the view, the way Doom draws its sprites:
+  // never thin from the side, and never leaning when you look up (looking up is a shear, not a tilt)
+#ifdef BATCHED
+  vec3 a = anchor;
+#else
+  vec3 a = vec3(0.0);
+#endif
+  // lit (and casting shadow) as if it faced the sun, whichever way you look, so the light never moves
+  pl = turn(position, a, lightYaw);
+#ifdef SHADOW
+  p = pl;
+#else
+  p = turn(position, a, yaw);
+#endif
+#endif
+  vWorld = (modelMatrix * vec4(pl, 1.0)).xyz;
+  vec4 w = modelMatrix * vec4(p, 1.0);
   gl_Position = projectionMatrix * viewMatrix * w;
 }`;
 
@@ -124,13 +156,17 @@ export type LayerMesh = THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial> &
   userData: { born: number; lit: THREE.ShaderMaterial; depth: THREE.ShaderMaterial; caster: boolean; [k: string]: unknown };
 };
 
-export function depthMaterial(map: THREE.Texture, uvRect = { value: new THREE.Vector4(0, 0, 1, 1) }) {
-  return new THREE.ShaderMaterial({ uniforms: { map: { value: map }, uvRect }, vertexShader: LAYER_VERT, fragmentShader: DEPTH_FRAG, side: THREE.DoubleSide });
+const defines = (face: boolean, batched: boolean, shadow = false) => ({ ...(face ? { FACE: '' } : {}), ...(batched ? { BATCHED: '' } : {}), ...(shadow ? { SHADOW: '' } : {}) });
+
+/** `face`: turns to the view in pill mode (everything but the roof); `batched`: many sprites in one mesh, each round its anchor. */
+export function depthMaterial(map: THREE.Texture, uvRect = { value: new THREE.Vector4(0, 0, 1, 1) }, face = true, batched = false) {
+  return new THREE.ShaderMaterial({ uniforms: { map: { value: map }, uvRect, yaw: view.yaw, lightYaw: view.lightYaw }, defines: defines(face, batched, true), vertexShader: LAYER_VERT, fragmentShader: DEPTH_FRAG, side: THREE.DoubleSide });
 }
 
-export function layerMaterial(map: THREE.Texture, lit = 1) {
+export function layerMaterial(map: THREE.Texture, lit = 1, batched = false) {
   return new THREE.ShaderMaterial({
-    uniforms: { ...light, map: { value: map }, appear: { value: 1 }, lit: { value: lit }, uvRect: { value: new THREE.Vector4(0, 0, 1, 1) } },
+    uniforms: { ...light, map: { value: map }, appear: { value: 1 }, lit: { value: lit }, uvRect: { value: new THREE.Vector4(0, 0, 1, 1) }, yaw: view.yaw, lightYaw: view.lightYaw },
+    defines: defines(true, batched),
     vertexShader: LAYER_VERT,
     fragmentShader: LAYER_FRAG,
     side: THREE.DoubleSide,
@@ -138,9 +174,65 @@ export function layerMaterial(map: THREE.Texture, lit = 1) {
 }
 
 export function meshFor(geometry: THREE.BufferGeometry, tex: THREE.Texture, lit = 1, caster = true): LayerMesh {
-  const mat = layerMaterial(tex, lit);
+  const batched = !!geometry.getAttribute('anchor');
+  const mat = layerMaterial(tex, lit, batched);
   const m = new THREE.Mesh(geometry, mat) as unknown as LayerMesh;
-  m.userData = { born: -1, lit: mat, depth: depthMaterial(tex, mat.uniforms.uvRect), caster };
+  m.userData = { born: -1, lit: mat, depth: depthMaterial(tex, mat.uniforms.uvRect, true, batched), caster };
+  m.frustumCulled = false;
+  return m;
+}
+
+/** Stops a sprite turning with the view, so it stays as it was put, like a real thing (the screen, the shards). */
+export function fixFacing(m: LayerMesh) {
+  for (const mat of [m.userData.lit, m.userData.depth]) {
+    mat.uniforms.yaw = { value: 0 };
+    mat.uniforms.lightYaw = { value: 0 };
+  }
+}
+
+const SOLID_VERT = /* glsl */ `
+varying vec2 vUv;
+varying vec3 vWorld;
+varying vec3 vNormal;
+void main() {
+  vUv = uv;
+  vec4 w = modelMatrix * vec4(position, 1.0);
+  vWorld = w.xyz;
+  vNormal = normalize(mat3(modelMatrix) * normal);
+  gl_Position = projectionMatrix * viewMatrix * w;
+}`;
+
+const SOLID_FRAG = /* glsl */ `
+uniform sampler2D map;
+uniform float appear;
+varying vec2 vUv;
+varying vec3 vWorld;
+varying vec3 vNormal;
+${BAYER}
+${LIGHT}
+void main() {
+  vec4 c = texture2D(map, vUv);
+  if (c.a < 0.5) discard;
+  vec3 n = normalize(vNormal);
+  if (!gl_FrontFacing) n = -n;
+  float face = dot(n, -sunDir);
+  // pixel-art shading in hard steps: the side towards the sun lighter even in the leaves' shade, tops a touch lighter
+  float side = face > 0.3 ? 1.0 : face > -0.15 ? 0.84 : 0.68;
+  float top = n.y > 0.6 ? 1.08 : 1.0;
+  float sun = face > 0.0 ? sunAt(vWorld + n * 0.03, 0.0015) : 0.0;
+  vec3 l = ambient * side * top + sunColor * sun * (face > 0.45 ? 0.62 : 0.4) + lamp(vWorld);
+  gl_FragColor = vec4(c.rgb * l, 1.0);
+}`;
+
+/**
+ * A real solid thing (pill mode): lit on its faces by the sun's direction in hard steps, shadowed and casting
+ * shadow like everything else. Shaped like a LayerMesh, so the forest handles it the same way.
+ */
+export function solidMesh(geometry: THREE.BufferGeometry, tex: THREE.Texture, caster = true): LayerMesh {
+  const mat = new THREE.ShaderMaterial({ uniforms: { ...light, map: { value: tex }, appear: { value: 1 } }, vertexShader: SOLID_VERT, fragmentShader: SOLID_FRAG, side: THREE.DoubleSide });
+  const depth = new THREE.ShaderMaterial({ uniforms: { map: { value: tex } }, vertexShader: SOLID_VERT, fragmentShader: DEPTH_FRAG, side: THREE.DoubleSide });
+  const m = new THREE.Mesh(geometry, mat) as unknown as LayerMesh;
+  m.userData = { born: -1, lit: mat, depth, caster };
   m.frustumCulled = false;
   return m;
 }
@@ -162,6 +254,9 @@ export function skyMesh() {
       cover: { value: 0 },
       time: { value: 0 },
       res: { value: new THREE.Vector2(1, 1) },
+      // pill mode: how many pixels looking up pushes the horizon down, and how far the view has turned
+      tilt: { value: 0 },
+      pan: { value: 0 },
     },
     vertexShader: /* glsl */ `void main() { gl_Position = vec4(position.xy, 1.0, 1.0); }`,
     fragmentShader: /* glsl */ `
@@ -170,6 +265,8 @@ export function skyMesh() {
       uniform float cover;
       uniform float time;
       uniform vec2 res;
+      uniform float tilt;
+      uniform float pan;
       ${BAYER}
       float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float noise(vec2 p) {
@@ -190,13 +287,14 @@ export function skyMesh() {
       }
       void main() {
         vec2 px = floor(gl_FragCoord.xy);
-        float v = abs(px.y / res.y - 0.5) * 2.0;
+        float hy = px.y + floor(tilt);
+        float v = min(1.0, abs(hy / res.y - 0.5) * 2.0);
         vec3 col = mix(mid, edge, v * v);
         // clouds only overhead; at the horizon the haze has them
-        float up = clamp((px.y / res.y - 0.5) * 2.0, 0.0, 1.0);
+        float up = clamp((hy / res.y - 0.5) * 2.0, 0.0, 1.0);
         if (cover > 0.0 && up > 0.0) {
           // flat and wide, the way fair-weather clouds lie, drifting a pixel every couple of seconds
-          vec2 q = vec2((px.x + floor(time * 0.5)) / res.y * 2.2, px.y / res.y * 6.0);
+          vec2 q = vec2((px.x - floor(pan) + floor(time * 0.5)) / res.y * 2.2, hy / res.y * 6.0);
           float n = fbm(q);
           float d = bayer(px) * 0.06;
           float edgeAt = 1.0 - cover * 0.62;
@@ -439,6 +537,9 @@ export function blitMesh(tex: THREE.Texture) {
         scale: { value: 1 },
         offset: { value: new THREE.Vector2() },
         lift: { value: new THREE.Vector3(0.035, 0.04, 0.03) },
+        // a dithered fade to one colour, for stepping into and out of pill mode
+        fade: { value: 0 },
+        fadeTo: { value: new THREE.Vector3(0.04, 0.07, 0.05) },
       },
       vertexShader: /* glsl */ `void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }`,
       fragmentShader: /* glsl */ `
@@ -447,9 +548,13 @@ export function blitMesh(tex: THREE.Texture) {
         uniform float scale;
         uniform vec2 offset;
         uniform vec3 lift;
+        uniform float fade;
+        uniform vec3 fadeTo;
+        ${BAYER}
         void main() {
           vec2 p = floor((gl_FragCoord.xy + offset) / scale);
           vec3 c = texture2D(frame, (p + 0.5) / lowRes).rgb;
+          if (fade > 0.0 && bayer(p) < fade) c = fadeTo;
           // faded film: blacks lifted towards a warm green, never quite black
           c = lift + min(c, 1.0) * (1.0 - lift);
           gl_FragColor = vec4(c, 1.0);
