@@ -85,7 +85,9 @@ old computer and the project discs, the cat's hollow (footer). Next.js 16, vanil
 - Trees reach the edges of wide screens (a second, sparser band further out); no empty mist at the sides.
 - The hollow (its tall swirl wall) is hidden until you leave the clearing, so it never stands over the wood.
 - "ryhox" is dressed with small posies on the letters themselves (`art/garland.ts`), not bushes beside the word.
-- Social icons: each brand's real mark, flat cream on a dark disc (`content/icons.ts`), like a clean pixel logo.
+- Social icons (footer buttons): each brand's real logo as a crisp vector in its own colour, like the tech stack's
+  logos (GitHub, Modrinth, Discord from Simple Icons, sources in `assets/socials`; an ink envelope for email;
+  `content/icons.ts`). No pixel-art icons there.
 - Scrolling down into the clearing catches you softly (the camera rides a spring and bounces a little); the very next
   scroll goes on at once. Scrolling back up never catches. A finger's swipe or fling is caught too (next touch goes on).
 - Nothing in the page may be wider than the screen (a phone then loads zoomed out and the walk is measured wrong).
@@ -101,6 +103,9 @@ old computer and the project discs, the cat's hollow (footer). Next.js 16, vanil
 - Weapon pixels must never crawl or swim; nothing may show a cut edge when the weapon moves.
 - Footsteps: one soft grass step (snow in winter), once per stride.
 - The About section has a stay: its words hold still (sticky) a while before the tech stack's paper rises over them.
+  A pen-drawn vine (`components/site/Vine.tsx`) grows down through it as you scroll: it starts over the landing's
+  last, all-brown screen (sprawling branches, leaves, flowers so it isn't empty), then keeps to the right edge beside
+  the words and ends just above the tech stack's paper.
 - Tech stack (`components/site/Crew.tsx`): 3D & motion, Everyday apps, Servers & data, Mods & hardware. WebGL, GLSL,
   React Three Fiber, Ollama, Kotlin, Fabric, Shaders and Physics were taken out on request; don't bring them back.
 - Pill mode is entered only by the console command `Enter.PillMode()`; the cat doesn't hold out her paw. The console's

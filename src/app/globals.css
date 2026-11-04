@@ -1031,10 +1031,9 @@ html[data-forest='ready'] .hero-socials * {
     var(--b) var(--b) 0 rgb(18 13 11 / 0.45);
 }
 
-.pixel-btn .px-icon {
-  width: 32px;
-  height: 32px;
-  image-rendering: pixelated;
+.pixel-btn .btn-logo {
+  width: 22px;
+  height: 22px;
   flex: none;
 }
 

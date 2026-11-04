@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { sfx } from '@/sound/sfx';
 import { CatOnPillow } from './Ink';
+import AboutVine from './Vine';
 
 const TITLE = 'I build playful, tactile things for the web.';
 
@@ -47,6 +48,8 @@ export default function About() {
 
   return (
     <section ref={sec} id="hello" className="site-sec about" aria-labelledby="hello-title">
+      {/* a vine growing down through the dusk as you read */}
+      <AboutVine />
       {/* petals drifting down through the dusk */}
       <div className="about-petals" aria-hidden="true">
         {Array.from({ length: 7 }, (_, i) => (

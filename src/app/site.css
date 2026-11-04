@@ -155,8 +155,63 @@ html[data-fx='on'] [data-reveal] {
   --bg: var(--evening);
   --ink: #f1ebd6;
   min-height: 160svh;
-  overflow: clip;
+  /* clipped at the sides only: its vine hangs up over the last, all-evening screen of the landing */
+  overflow-x: clip;
+  overflow-y: visible;
   padding: clamp(90px, 17svh, 190px) clamp(20px, 6vw, 110px) calc(clamp(70px, 12svh, 130px) + 140px);
+}
+
+/* the vine: from a screen above the About (as tall as the landing's stage) down to just above the crew's paper */
+.about-vine {
+  position: absolute;
+  left: 0;
+  top: calc(-100vh - var(--bleed));
+  top: calc(-100lvh - var(--bleed));
+  width: 100%;
+  height: calc(100% + 100vh + var(--bleed) - 170px);
+  height: calc(100% + 100lvh + var(--bleed) - 170px);
+  overflow: visible;
+  pointer-events: none;
+}
+
+.vine-stem,
+.vine-branch {
+  fill: none;
+  stroke: rgb(241 235 214 / 0.5);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+}
+
+.vine-stem {
+  stroke-width: 2.1;
+  stroke-dashoffset: calc(1 - var(--p, 0));
+}
+
+.vine-branch {
+  stroke-width: 1.7;
+  stroke-dashoffset: calc(1 - clamp(0, (var(--tip, 0) - var(--y)) / var(--run), 1));
+}
+
+/* leaves unfurl, and flowers open, as the tip reaches them */
+.vine-leaf {
+  fill: rgb(173 189 114 / 0.5);
+  stroke: rgb(241 235 214 / 0.45);
+  stroke-width: 0.9;
+  scale: clamp(0, calc((var(--tip, 0) - var(--y)) / 46), 1);
+  transition: scale 0.25s ease-out;
+}
+
+.vine-flower {
+  fill: var(--bloom);
+  opacity: 0.85;
+  scale: clamp(0, calc((var(--tip, 0) - var(--y)) / 40), 1);
+  transition: scale 0.3s ease-out;
+}
+
+.vine-flower .eye {
+  fill: #f1ebd6;
 }
 
 .about-inner {

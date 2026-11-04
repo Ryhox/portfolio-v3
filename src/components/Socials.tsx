@@ -1,16 +1,16 @@
 'use client';
 
 import { useState } from 'react';
-import { iconSvg, type IconKey } from '@/content/icons';
+import { ICONS, type IconKey } from '@/content/icons';
 import { site } from '@/content/site';
 
-/** A social's pixel icon, drawn from the same grid the forest paints its buttons with. */
+/** A social's mark: the brand's real logo, crisp, in its own colour (like the tech stack's). */
 function Icon({ name }: { name: IconKey }) {
+  const i = ICONS[name];
+  const paint = i.stroke ? { fill: 'none', stroke: i.color, strokeWidth: 1.9, strokeLinejoin: 'round' as const, strokeLinecap: 'round' as const } : { fill: i.color };
   return (
-    <svg className="px-icon" viewBox="0 0 16 16" width="32" height="32" shapeRendering="crispEdges" aria-hidden="true">
-      {iconSvg(name).map((p) => (
-        <path key={p.fill} d={p.d} fill={p.fill} />
-      ))}
+    <svg className="btn-logo" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+      <path d={i.d} {...paint} />
     </svg>
   );
 }
