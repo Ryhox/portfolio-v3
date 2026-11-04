@@ -4,6 +4,9 @@ import Lenis from 'lenis';
 import { useEffect, useRef, useState } from 'react';
 import { createForest } from '@/scene/engine';
 import { forest } from '@/scene/store';
+import { seasonStore } from '@/site/season';
+import { setScroller } from '@/site/scroll';
+import { sfx } from '@/sound/sfx';
 
 /** The fixed canvas behind the page, and the smooth scroll that walks you through it. */
 export default function Forest() {
@@ -15,6 +18,7 @@ export default function Forest() {
     if (!c) return;
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const lenis = reduced ? null : new Lenis({ autoRaf: true, lerp: 0.09, wheelMultiplier: 0.9 });
+    setScroller(lenis);
     // fingers on the glass, and when the last one left: a touch scroll and its fling are the browser's own
     let fingers = 0;
     let lifted = -Infinity;
@@ -72,22 +76,31 @@ export default function Forest() {
       return true;
     };
     let engine: ReturnType<typeof createForest> | null = null;
-    try {
-      engine = createForest({
-        canvas: c,
-        scroll: () => (lenis ? lenis.animatedScroll : window.scrollY),
-        hold,
-        title: () => document.querySelector('.hero h1'),
-        onReady: () => {
-          setReady(true);
-          document.documentElement.dataset.forest = 'ready';
-        },
-      });
-    } catch (e) {
-      // no WebGL: the page still reads fine on the plain background, and the loading screen steps aside
-      console.warn(e);
-      document.documentElement.dataset.forest = 'failed';
-    }
+    // the wood is painted in the visit's season; picking another on the page paints it again
+    const start = () => {
+      engine?.dispose();
+      engine = null;
+      delete document.documentElement.dataset.forest;
+      setReady(false);
+      try {
+        engine = createForest({
+          canvas: c,
+          scroll: () => (lenis ? lenis.animatedScroll : window.scrollY),
+          hold,
+          season: seasonStore.get(),
+          onReady: () => {
+            setReady(true);
+            document.documentElement.dataset.forest = 'ready';
+          },
+        });
+      } catch (e) {
+        // no WebGL: the page still reads fine on the plain background, and the loading screen steps aside
+        console.warn(e);
+        document.documentElement.dataset.forest = 'failed';
+      }
+    };
+    start();
+    const unseason = seasonStore.subscribe(start);
     if (process.env.NODE_ENV !== 'production') Object.assign(window, { __lenis: lenis });
     // pill mode: the page steps aside, the scroll stops where it is, and the tab shows the pill
     let wasPlaying = false;
@@ -118,6 +131,8 @@ export default function Forest() {
       for (const t of ['touchstart', 'touchend', 'touchcancel'] as const) window.removeEventListener(t, onFinger);
       release?.();
       unplay();
+      unseason();
+      setScroller(null);
       engine?.dispose();
       lenis?.destroy();
     };

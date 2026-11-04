@@ -130,30 +130,29 @@ export function paintBoard(paras: Para[], width: number, ratio: number, look: Lo
 export const buttonState: Record<string, 'hover' | 'press'> = {};
 
 const BTN = {
-  outline: '#2b1e16',
-  shadow: 'rgba(26,18,13,0.42)',
-  body: '#94bc72',
-  light: '#c4e199',
-  dark: '#668f4c',
-  shine: '#f2fbdc',
-  hover: { body: '#a6cd83', light: '#d6eeae', dark: '#77a05a' },
-  press: { body: '#86ad66', light: '#a9cd84', dark: '#5d8445' },
-  text: '#fffbea',
-  sprout: ['#3f7a35', '#6fae4a', '#9fd06a'],
+  outline: '#1d1612',
+  shadow: 'rgba(18,13,11,0.45)',
+  body: '#fbf6e9',
+  dark: '#e4d9bf',
+  hover: { body: '#e9f0cf', dark: '#cbd8a6' },
+  press: { body: '#dbe6bc', dark: '#bccb92' },
+  text: '#1d1612',
 };
+/** The moss a hovered button grows, and the flowers in it. */
+const MOSS = { dark: '#3f6a2e', mid: '#5e8c3a', light: '#8ab452', pink: '#e47f98', white: '#fff6e6', yellow: '#f2c24a' };
 
 /**
- * A cosy game button, all in whole blocks: a dark warm outline with rounded pixel corners, a sage body
- * with a light band on top and a darker one underneath, a little shine, a sprout growing from the corner
- * and a soft drop shadow. It brightens under the pointer and presses flat when clicked.
+ * A button painted the way the page's are, all in whole blocks: a scrap of the pale paper with a stepped outline
+ * in ink and a shadow down and to the right, ink letters, a little depth along its foot. Under the pointer it
+ * turns highlighter yellow; pressed, it goes down onto its shadow.
  * Painted from a few big overlapping shapes, never block by block, so no seams can show between blocks.
  */
 function gameButton(g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, b: number, state: 'hover' | 'press' | undefined, run: Run, text: string) {
-  const x0 = Math.round(x / b) * b;
   const rest = Math.round(y / b) * b;
-  // hovering only brightens it; pressing pushes it down into its shadow
-  const y0 = rest + (state === 'press' ? b : 0);
-  const tone = state === 'hover' ? BTN.hover : state === 'press' ? BTN.press : BTN;
+  const pressed = state === 'press';
+  const x0 = Math.round(x / b) * b + (pressed ? b : 0);
+  const y0 = rest + (pressed ? b : 0);
+  const tone = state === 'hover' ? BTN.hover : pressed ? BTN.press : BTN;
   const rect = (rx: number, ry: number, rw: number, rh: number, c: string) => {
     g.fillStyle = c;
     g.fillRect(rx, ry, rw, rh);
@@ -163,21 +162,45 @@ function gameButton(g: CanvasRenderingContext2D, x: number, y: number, w: number
     rect(rx + n * b, ry, rw - 2 * n * b, rh, c);
     rect(rx, ry + n * b, rw, rh - 2 * n * b, c);
   };
-  if (state !== 'press') rounded(x0, rest + b, w, h, 1, BTN.shadow);
+  if (!pressed) rounded(Math.round(x / b) * b + b, rest + b, w, h, 1, BTN.shadow);
   rounded(x0, y0, w, h, 1, BTN.outline);
-  // the body, inset one block, its corners stepped once more
+  // the paper, inset one block, its corners stepped once more, a shade along its foot
   rounded(x0 + b, y0 + b, w - 2 * b, h - 2 * b, 1, tone.body);
-  rect(x0 + 2 * b, y0 + b, w - 4 * b, 2 * b, tone.light);
-  rect(x0 + b, y0 + 2 * b, w - 2 * b, b, tone.light);
-  rect(x0 + 2 * b, y0 + h - 3 * b, w - 4 * b, 2 * b, tone.dark);
-  rect(x0 + b, y0 + h - 3 * b, w - 2 * b, b, tone.dark);
-  // the shine, top left
-  rect(x0 + 2 * b, y0 + 2 * b, 2 * b, b, BTN.shine);
-  // the sprout on the top-left shoulder
-  rect(x0 + 4 * b, y0 - b, b, b + 0.5, BTN.sprout[0]);
-  rect(x0 + 3 * b, y0 - 2 * b, 2 * b, b + 0.5, BTN.sprout[1]);
-  rect(x0 + 3 * b, y0 - 2 * b, b, b, BTN.sprout[2]);
-  rect(x0 + 5 * b, y0 - 3 * b, b, 2 * b, BTN.sprout[2]);
+  rect(x0 + 2 * b, y0 + h - 2 * b, w - 4 * b, b, tone.dark);
+  // hovered: moss along its top, block by block, with flowers in it, and a tuft on its corner
+  if (state === 'hover') {
+    const hash = (n: number) => {
+      const v = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+      return v - Math.floor(v);
+    };
+    const cols = Math.round(w / b);
+    const tops: number[] = [];
+    let prev = 2;
+    for (let i = 0; i < cols; i++) {
+      const hh = Math.max(prev - 1, Math.min(prev + 1, 1 + (hash(i) > 0.45 ? 1 : 0)));
+      prev = hh;
+      tops.push(hh);
+      for (let j = 0; j < hh; j++) rect(x0 + i * b, y0 - (j - 1) * b - b, b + 0.5, b + 0.5, j === hh - 1 ? (hash(i * 3.1) > 0.45 ? MOSS.light : MOSS.mid) : j === hh - 2 ? MOSS.mid : MOSS.dark);
+    }
+    for (const [at, petal, heart] of [[0.24, MOSS.pink, MOSS.yellow], [0.68, MOSS.white, MOSS.yellow]] as const) {
+      const i = Math.round(cols * at);
+      const fy = y0 - (tops[i] ?? 2) * b - b;
+      rect(x0 + i * b, fy, b, b, heart);
+      rect(x0 + (i - 1) * b, fy, b, b, petal);
+      rect(x0 + (i + 1) * b, fy, b, b, petal);
+      rect(x0 + i * b, fy - b, b, b, petal);
+      rect(x0 + i * b, fy + b, b, b, petal);
+    }
+    // the tuft, a little mound on the bottom-right corner with a pink flower
+    for (let i = 0; i < 6; i++) {
+      const mh = Math.round(3 * Math.sin((Math.PI * (i + 0.5)) / 6)) + 1;
+      for (let j = 0; j < mh; j++) rect(x0 + w - 3 * b + i * b, y0 + h - j * b, b + 0.5, b + 0.5, j === mh - 1 ? MOSS.light : j === mh - 2 ? MOSS.mid : MOSS.dark);
+    }
+    rect(x0 + w, y0 + h - 4 * b, b, b, MOSS.yellow);
+    rect(x0 + w - b, y0 + h - 4 * b, b, b, MOSS.pink);
+    rect(x0 + w + b, y0 + h - 4 * b, b, b, MOSS.pink);
+    rect(x0 + w, y0 + h - 5 * b, b, b, MOSS.pink);
+  }
   // the icon: each pixel drawn a hair larger than its block, so neighbours overlap instead of leaving seams
   let tx = x0 + 4 * b;
   if (run.icon) {
@@ -196,12 +219,10 @@ function gameButton(g: CanvasRenderingContext2D, x: number, y: number, w: number
     });
     tx += (ICON_SIZE + 3) * b;
   }
-  // the words, in pixels, with a dark drop of their own
-  g.font = `${run.weight ?? 600} ${run.size}px ${family('pixel')}`;
+  // the words, in pixels, in ink
+  g.font = `${Math.max(run.weight ?? 600, 700)} ${run.size}px ${family('pixel')}`;
   g.textBaseline = 'middle';
   const ty = y0 + h / 2 + b * 0.2;
-  g.fillStyle = BTN.outline;
-  g.fillText(text, tx, ty + Math.max(2, b * 0.75));
   g.fillStyle = BTN.text;
   g.fillText(text, tx, ty);
   g.textBaseline = 'top';

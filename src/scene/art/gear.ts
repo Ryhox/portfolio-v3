@@ -60,15 +60,49 @@ const GLYPHS: Record<string, string[]> = {
   x: ['.....', '.....', '#...#', '.#.#.', '..#..', '.#.#.', '#...#'],
   m: ['.....', '.....', '##.#.', '#.#.#', '#.#.#', '#.#.#', '#.#.#'],
   '!': ['..#..', '..#..', '..#..', '..#..', '..#..', '.....', '..#..'],
+  A: ['.###.', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'],
+  B: ['####.', '#...#', '#...#', '####.', '#...#', '#...#', '####.'],
+  C: ['.###.', '#...#', '#....', '#....', '#....', '#...#', '.###.'],
+  D: ['####.', '#...#', '#...#', '#...#', '#...#', '#...#', '####.'],
+  E: ['#####', '#....', '#....', '####.', '#....', '#....', '#####'],
+  F: ['#####', '#....', '#....', '####.', '#....', '#....', '#....'],
+  G: ['.###.', '#...#', '#....', '#.###', '#...#', '#...#', '.####'],
+  H: ['#...#', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'],
+  I: ['.###.', '..#..', '..#..', '..#..', '..#..', '..#..', '.###.'],
+  J: ['..###', '...#.', '...#.', '...#.', '#..#.', '#..#.', '.##..'],
+  K: ['#...#', '#..#.', '#.#..', '##...', '#.#..', '#..#.', '#...#'],
+  L: ['#....', '#....', '#....', '#....', '#....', '#....', '#####'],
+  M: ['#...#', '##.##', '#.#.#', '#.#.#', '#...#', '#...#', '#...#'],
+  N: ['#...#', '##..#', '#.#.#', '#..##', '#...#', '#...#', '#...#'],
+  O: ['.###.', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'],
+  P: ['####.', '#...#', '#...#', '####.', '#....', '#....', '#....'],
+  Q: ['.###.', '#...#', '#...#', '#...#', '#.#.#', '#..#.', '.##.#'],
+  R: ['####.', '#...#', '#...#', '####.', '#.#..', '#..#.', '#...#'],
+  S: ['.####', '#....', '#....', '.###.', '....#', '....#', '####.'],
+  T: ['#####', '..#..', '..#..', '..#..', '..#..', '..#..', '..#..'],
+  U: ['#...#', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'],
+  V: ['#...#', '#...#', '#...#', '#...#', '#...#', '.#.#.', '..#..'],
+  W: ['#...#', '#...#', '#...#', '#.#.#', '#.#.#', '##.##', '#...#'],
+  X: ['#...#', '#...#', '.#.#.', '..#..', '.#.#.', '#...#', '#...#'],
+  Y: ['#...#', '#...#', '.#.#.', '..#..', '..#..', '..#..', '..#..'],
+  Z: ['#####', '....#', '...#.', '..#..', '.#...', '#....', '#####'],
+  '.': ['.....', '.....', '.....', '.....', '.....', '.##..', '.##..'],
+  ',': ['.....', '.....', '.....', '.....', '.##..', '..#..', '.#...'],
+  ':': ['.....', '.##..', '.##..', '.....', '.##..', '.##..', '.....'],
+  '/': ['....#', '...#.', '...#.', '..#..', '.#...', '.#...', '#....'],
+  '-': ['.....', '.....', '.....', '.###.', '.....', '.....', '.....'],
+  '×': ['.....', '#...#', '.#.#.', '..#..', '.#.#.', '#...#', '.....'],
+  "'": ['..#..', '..#..', '.#...', '.....', '.....', '.....', '.....'],
 };
 
-/** Words in the pixel font, cream (or `color`) with a dark outline all round and a drop below. */
+/** Words in the pixel font, cream (or `color`) with a dark outline all round and a drop below. Spaces are narrow. */
 export function pixelText(text: string, color = CREAM, top = hex('#fffbea')): Pix {
+  text = text.replace(/ /g, ' ');
   const w = text.length * 6 + 2;
   const p = new Pix(w, 10);
   const ink = new Uint8Array(w * 10);
   [...text].forEach((ch, i) => {
-    const g = GLYPHS[ch];
+    const g = GLYPHS[ch] ?? GLYPHS[ch.toUpperCase()];
     if (!g) return;
     g.forEach((row, y) => [...row].forEach((c, x) => c === '#' && (ink[(y + 1) * w + 1 + i * 6 + x] = 1)));
   });
@@ -85,6 +119,32 @@ export function pixelText(text: string, color = CREAM, top = hex('#fffbea')): Pi
   return p;
 }
 
+/**
+ * A key hint in the pixel font: the key on a little cream keycap (dark letters, a darker lip under it), then what
+ * it does in `color`. Used under the scope (SHIFT HOLD BREATH), by the ammo (R RELOAD) and the like.
+ */
+export function keyHint(key: string, label: string, color = CREAM): Pix {
+  const kw = key.length * 6 + 3;
+  const cap = new Pix(kw + 2, 12);
+  for (let y = 0; y < 12; y++)
+    for (let x = 0; x < kw + 2; x++) {
+      const edge = x === 0 || x === kw + 1 || y === 0 || y >= 10;
+      const corner = (x === 0 || x === kw + 1) && (y === 0 || y === 11);
+      if (corner) continue;
+      cap.set(x, y, edge ? INK : y === 9 ? hex('#b8ad94') : y === 1 ? hex('#fffbea') : CREAM);
+    }
+  [...key].forEach((ch, i) => {
+    const g = GLYPHS[ch] ?? GLYPHS[ch.toUpperCase()];
+    g?.forEach((row, y) => [...row].forEach((c, x) => c === '#' && cap.set(2 + i * 6 + x, 2 + y, INK)));
+  });
+  if (!label) return cap;
+  const text = pixelText(label, color, hex('#fffbea'));
+  const p = new Pix(cap.w + 2 + text.w, 12);
+  p.blit(cap, 0, 0);
+  p.blit(text, cap.w + 2, 1);
+  return p;
+}
+
 /** The little rabbit head that stands for "animals" on the counter. */
 export function tallyIcon(): Pix {
   const rows = ['.#..#..', '.#..#..', '.#..#..', '.####..', '#####..', '#.##.#.', '######.', '.####..'];
@@ -97,6 +157,44 @@ export function tallyIcon(): Pix {
     }
   // the eye
   p.set(2, 6, INK);
+  return p;
+}
+
+/**
+ * The crosshair for a weapon, opened up by `gap` pixels as you move, jump and fire: the rifle's four arms, the
+ * shotgun's ring (the spread of its pellets), the knife's single point. Cream (warm when an animal is in it),
+ * outlined. Centred on its middle pixel.
+ */
+export function dynamicCross(kind: 'rifle' | 'shotgun' | 'knife', gap: number, color: number): Pix {
+  const r = kind === 'shotgun' ? Math.max(4, gap + 4) : gap + 6;
+  const s = r * 2 + 5;
+  const p = new Pix(s, s);
+  const c = Math.floor(s / 2);
+  const on = new Set<number>();
+  const put = (x: number, y: number) => on.add(y * s + x);
+  if (kind === 'knife') put(c, c);
+  else if (kind === 'shotgun') {
+    for (let a = 0; a < 24; a++) {
+      const ang = (a / 24) * Math.PI * 2;
+      put(Math.round(c + Math.cos(ang) * r), Math.round(c + Math.sin(ang) * r));
+    }
+    put(c, c);
+  } else {
+    const g0 = 2 + gap;
+    for (let i = 0; i < 4; i++) {
+      put(c, c - g0 - i);
+      put(c, c + g0 + i);
+      put(c - g0 - i, c);
+      put(c + g0 + i, c);
+    }
+    put(c, c);
+  }
+  for (let y = 0; y < s; y++)
+    for (let x = 0; x < s; x++) {
+      const i = y * s + x;
+      if (on.has(i)) p.set(x, y, color);
+      else if (on.has(i - 1) || on.has(i + 1) || on.has(i - s) || on.has(i + s)) p.set(x, y, INK);
+    }
   return p;
 }
 

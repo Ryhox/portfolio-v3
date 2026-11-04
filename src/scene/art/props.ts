@@ -1,6 +1,7 @@
-import { PAL } from '../palette';
+import { PAL, SEASON } from '../palette';
 import { clamp, hash2, hex, mulberry, noise1, noise2, Pix, ramp, shade, type Ramp } from '../pix';
-import { fern, ground, mossCushion, mossPatch, mushroom, rock, tuft, vine } from './brush';
+import { ground, mossCushion, mossPatch, mushroom, rock, snowOn, tuft, vine } from './brush';
+import { seasonFern } from './trees';
 import type { Layer } from './forest';
 
 type Pt = [number, number];
@@ -103,7 +104,8 @@ export function computerSprite(): Pix {
   box(66, 46, 68, 48, (_x, y) => (y === s_(46) ? s[2] : s[3]));
 
   // moss cushions along the top of the monitor and on the case, drooping over the front edge
-  const moss = ramp('#1c301b', '#28411f', '#365727', '#486d30', '#5e853a', '#7c9c4b', '#a3b866');
+  // moss cushions, or in winter drifts of snow in the same places
+  const moss = PAL.snowy ? PAL.snow.slice(2) : PAL.cushion;
   const rnd0 = mulberry(31);
   for (let i = 0; i < 7; i++) {
     const x = s_(26) + rnd0() * s_(52);
@@ -116,16 +118,17 @@ export function computerSprite(): Pix {
   p.set(s_(62), 1, sun[2]);
   p.set(s_(62) - 1, 2, sun[1]);
   p.set(s_(62) + 1, 1, sun[3]);
-  vine(p, s_(81), s_(4), s_(50), PAL.clearing.leaf.slice(1), 81);
-  vine(p, s_(77), s_(8), s_(22), PAL.clearing.leaf.slice(1), 82);
+  vine(p, s_(81), s_(4), s_(50), PAL.vine, 81);
+  vine(p, s_(77), s_(8), s_(22), PAL.vine, 82);
 
   // grass growing up round the case and over the keyboard
   const rnd = mulberry(91);
   for (let i = 0; i < 34; i++) {
     const x = s_(8) + rnd() * s_(84);
-    tuft(p, x, s_(71) - rnd() * 2, 4 + rnd() * 8, rnd() < 0.5 ? sun : g, 92 + i, 0.55);
+    tuft(p, x, s_(71) - rnd() * 2, (PAL.snowy ? 2 : 4) + rnd() * (PAL.snowy ? 4 : 8), PAL.snowy ? PAL.straw : rnd() < 0.5 ? sun : g, 92 + i, 0.55);
   }
   p.outline(0.6, 0.88);
+  if (PAL.snowy) snowOn(p, PAL.snow, 99);
   return p;
 }
 
@@ -154,8 +157,9 @@ export function keyboardSprite(): Pix {
     p.set(x, y + 1, PAL.computer.key[0]);
   }
   const rnd = mulberry(93);
-  for (let i = 0; i < 16; i++) tuft(p, rnd() * KEYBOARD.w, KEYBOARD.h - 1 - rnd() * 3, 3 + rnd() * 6, rnd() < 0.5 ? sun : g, 140 + i, 0.55);
+  for (let i = 0; i < 16; i++) tuft(p, rnd() * KEYBOARD.w, KEYBOARD.h - 1 - rnd() * 3, 3 + rnd() * 6, PAL.snowy ? PAL.straw : rnd() < 0.5 ? sun : g, 140 + i, 0.55);
   p.outline(0.6, 0.88);
+  if (PAL.snowy) snowOn(p, PAL.snow, 159);
   return p;
 }
 
@@ -437,16 +441,21 @@ export function hollowStump(): Layer & { catAt: [number, number] } {
     }
   }
   // grass in front of the roots, toadstools, a pebble
-  for (let i = 0; i < 18; i++) tuft(p, cx - 70 + rnd() * 140, ay + 2 + rnd() * 6, 5 + rnd() * 7, H.grass, 720 + i, 0.55);
-  mushroom(p, cx + 66, ay + 6, 9, H.cap, H.stem, 730);
-  mushroom(p, cx + 76, ay + 8, 5, H.cap, H.stem, 731);
-  mushroom(p, cx - 82, ay + 12, 6, H.cap, H.stem, 732);
+  for (let i = 0; i < 18; i++) tuft(p, cx - 70 + rnd() * 140, ay + 2 + rnd() * 6, 5 + rnd() * 7, PAL.snowy ? PAL.straw : H.grass, 720 + i, 0.55);
+  // toadstools by the stump, the way they come up: none in the snow, a whole troop in autumn
+  if (SEASON !== 'winter') {
+    mushroom(p, cx + 66, ay + 6, 9, H.cap, H.stem, 730);
+    mushroom(p, cx + 76, ay + 8, 5, H.cap, H.stem, 731);
+    mushroom(p, cx - 82, ay + 12, 6, H.cap, H.stem, 732);
+  }
+  if (SEASON === 'autumn') for (let i = 0; i < 4; i++) mushroom(p, cx - 50 + i * 31 + rnd() * 8, ay + 9 + rnd() * 4, 4 + rnd() * 4, H.cap, H.stem, 735 + i);
   rock(p, cx - 60, ay + 10, 9, 5, PAL.clearing.rock, 733);
   for (let i = 0; i < 10; i++) {
     const side = i % 2 ? 1 : -1;
-    fern(p, cx + side * (110 + rnd() * 260), ay + 8 + rnd() * 6, 10 + rnd() * 10, H.wall.slice(2), 740 + i);
+    seasonFern(p, cx + side * (110 + rnd() * 260), ay + 8 + rnd() * 6, 10 + rnd() * 10, H.wall.slice(2), 740 + i);
   }
   p.outline();
+  if (PAL.snowy) snowOn(p, PAL.snow, 749);
   p.bleed();
   return { pix: p, ax: cx, ay: ay + 2, d, repeat: true, catAt: [cx, top - 3] };
 }
@@ -556,7 +565,8 @@ type Rect = { x: number; y: number; w: number; h: number };
 export type Notice = { pix: Pix; ax: number; ay: number; paper: Rect; links: Rect[] };
 
 const INK = { title: hex('#36261b'), kicker: hex('#55652a'), body: hex('#43331f'), soft: hex('#776651') };
-const BTN = { outline: hex('#2b1e16'), body: hex('#94bc72'), light: hex('#c4e199'), dark: hex('#668f4c'), hover: hex('#a6cd83'), text: hex('#fffbea') };
+const BTN = { outline: hex('#1d1612'), body: hex('#fbf6e9'), dark: hex('#e4d9bf'), hover: hex('#e9f0cf'), hoverDark: hex('#cbd8a6'), text: hex('#1d1612') };
+const MOSS = { dark: hex('#3f6a2e'), mid: hex('#5e8c3a'), light: hex('#8ab452'), top: hex('#b6d36e'), pink: hex('#e47f98'), white: hex('#fff6e6'), yellow: hex('#f2c24a') };
 let scratch: CanvasRenderingContext2D | null = null;
 
 /**
@@ -630,7 +640,8 @@ function writeNotice(p: Pix, paper: Rect, text: NoticeText, big: boolean): Rect[
     }
     y += q.after;
   }
-  // the links: little sage buttons with a dark rim and a lit top, pressed in when clicked
+  // the links: little buttons of pale paper with an ink rim and ink letters, like the page's own; under the
+  // pointer they go a pale green and grow moss along the top with a flower or two in it; pressed in when clicked
   const rects: Rect[] = [];
   let x = x0;
   text.links.forEach((label, i) => {
@@ -638,18 +649,34 @@ function writeNotice(p: Pix, paper: Rect, text: NoticeText, big: boolean): Rect[
     const w = Math.ceil(scratch!.measureText(label).width) + 10;
     const down = text.press === i ? 1 : 0;
     const by = y + down;
+    const hot = text.hover === i;
     for (let j = 0; j < btnH; j++) {
       for (let k = 0; k < w; k++) {
         const corner = (j === 0 || j === btnH - 1) && (k === 0 || k === w - 1);
         if (corner) continue;
         const rim = j === 0 || j === btnH - 1 || k === 0 || k === w - 1;
-        const tone = rim ? BTN.outline : j === 1 ? BTN.light : j >= btnH - 3 ? BTN.dark : text.hover === i ? BTN.hover : BTN.body;
+        const tone = rim ? BTN.outline : j >= btnH - 2 ? (hot ? BTN.hoverDark : BTN.dark) : hot ? BTN.hover : BTN.body;
         p.set(x + k, by + j, tone);
       }
     }
     if (!down) for (let k = 1; k < w - 1; k++) p.set(x + k, by + btnH, BTN.outline);
-    letter(p, x + 5, by + 3, label, font, BTN.outline);
     letter(p, x + 5, by + 2, label, font, BTN.text);
+    if (hot) {
+      // moss over the top rim, a pixel or two deep, with a pink flower and a white one in it
+      for (let k = 0; k < w; k++) {
+        const deep = 1 + (((k * 7 + i * 3) % 5) > 2 ? 1 : 0);
+        for (let d = 0; d < deep; d++) p.set(x + k, by - d, d === deep - 1 ? (k % 3 ? MOSS.light : MOSS.top) : MOSS.mid);
+        if (k % 4 === 1) p.set(x + k, by + 1, MOSS.dark);
+      }
+      for (const [at, petal] of [[0.25, MOSS.pink], [0.72, MOSS.white]] as const) {
+        const fx = x + Math.round(w * at);
+        p.set(fx, by - 3, MOSS.yellow);
+        p.set(fx - 1, by - 3, petal);
+        p.set(fx + 1, by - 3, petal);
+        p.set(fx, by - 4, petal);
+        p.set(fx, by - 2, petal);
+      }
+    }
     rects.push({ x, y, w, h: btnH + 1 });
     x += w + 4;
   });
@@ -672,7 +699,8 @@ export function noticeSprite(bw: number, bh: number, legs: number, text: NoticeT
   const p = new Pix(W, H);
   const wood = ramp('#211a15', '#31271f', '#45382c', '#5a4a3a', '#715e4a', '#8a765e', '#a28f75');
   const paper = ramp('#8c7f63', '#b9aa86', '#d8caa6', '#ece0c1', '#f6edd4');
-  const moss = ramp('#1c301b', '#28411f', '#365727', '#486d30', '#5e853a', '#7c9c4b', '#a3b866');
+  // moss cushions, or in winter drifts of snow in the same places
+  const moss = PAL.snowy ? PAL.snow.slice(2) : PAL.cushion;
   const px0 = over;
   const px1 = over + bw;
   const at = (r: Ramp, i: number) => r[Math.max(0, Math.min(r.length - 1, i))];
@@ -764,24 +792,30 @@ export function noticeSprite(bw: number, bh: number, legs: number, text: NoticeT
     mossPatch(p, x0 + 1, py1 + legs * 0.45, 2, 3, moss, 690 + x0, true);
   }
   // ivy hanging off the cap rail and down the sides of the panel
-  vine(p, px0 + 2, py0 + 1, Math.round(bh * 0.7 + legs * 0.4), PAL.clearing.leaf.slice(1), 701);
-  vine(p, px1 - 2, py0 + 1, Math.round(bh * 0.45), PAL.clearing.leaf.slice(1), 702);
+  vine(p, px0 + 2, py0 + 1, Math.round(bh * 0.7 + legs * 0.4), PAL.vine, 701);
+  vine(p, px1 - 2, py0 + 1, Math.round(bh * 0.45), PAL.vine, 702);
 
   // at its feet: grass, a few caps and a flower or two
   const g = PAL.clearing.grass;
   const sun = PAL.clearing.sun;
   for (let i = 0; i < 18; i++) {
     const x = posts[0] - 6 + rnd() * (posts[1] - posts[0] + postW + 12);
-    tuft(p, x, ground - rnd(), 3 + rnd() * 6, rnd() < 0.4 ? sun : g, 720 + i, 0.55);
+    tuft(p, x, ground - rnd(), 3 + rnd() * 6, PAL.snowy ? PAL.straw : rnd() < 0.4 ? sun : g, 720 + i, 0.55);
   }
-  mushroom(p, posts[1] + postW + 2, ground, 5, PAL.hollow.cap, PAL.hollow.stem, 741);
-  mushroom(p, posts[1] + postW + 6, ground, 3, PAL.hollow.cap, PAL.hollow.stem, 742);
-  mushroom(p, posts[0] - 3, ground, 4, PAL.hollow.cap, PAL.hollow.stem, 743);
-  for (const [fx, fc] of [[posts[0] + 10, '#ece6d4'], [posts[1] - 6, '#e7b73c'], [posts[0] - 6, '#a8443c']] as const) {
+  if (SEASON === 'summer' || SEASON === 'autumn') {
+    mushroom(p, posts[1] + postW + 2, ground, 5, PAL.hollow.cap, PAL.hollow.stem, 741);
+    mushroom(p, posts[1] + postW + 6, ground, 3, PAL.hollow.cap, PAL.hollow.stem, 742);
+    mushroom(p, posts[0] - 3, ground, 4, PAL.hollow.cap, PAL.hollow.stem, 743);
+  }
+  // a flower or two at its feet, when there are any
+  const feet = SEASON === 'spring' ? ['#a283cf', '#f2e39a', '#f1ece2'] : SEASON === 'summer' ? ['#ece6d4', '#e7b73c', '#a8443c'] : SEASON === 'autumn' ? ['#cdaee0'] : [];
+  feet.forEach((fc, i) => {
+    const fx = [posts[0] + 10, posts[1] - 6, posts[0] - 6][i];
     p.set(fx, ground - 5, hex(fc));
     p.set(fx, ground - 4, PAL.clearing.leaf[3]);
-  }
+  });
   p.outline(0.6, 0.88);
+  if (PAL.snowy) snowOn(p, PAL.snow, 799, 0.8);
 
   // the words, written last and right on the paper: at full size, without the stack line if need be, smaller
   // only after that, and only if even that won't fit is the description cut short with an ellipsis

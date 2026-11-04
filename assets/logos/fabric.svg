@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="512" height="512"><title>Fabric</title>
+<defs><pattern id="w" width="8" height="8" patternUnits="userSpaceOnUse"><rect width="8" height="8" fill="#dcd1b5"/><path d="M0 2h4M4 6h4" stroke="#cbbd99" stroke-width="2"/><path d="M6 0v4M2 4v4" stroke="#e8dfc7" stroke-width="1.4"/></pattern></defs>
+<path d="M14 12h100v78l-26 26H14z" fill="url(#w)"/>
+<path d="M114 90l-26 26V96a6 6 0 0 1 6-6z" fill="#b3a27a"/>
+<path d="M22 20h84v66M22 20v88h60" fill="none" stroke="#7a6a4e" stroke-width="2.6" stroke-dasharray="6 5" stroke-linecap="round"/>
+<path d="M14 12h100v78l-26 26H14z" fill="none" stroke="#a8986e" stroke-width="2"/>
+</svg>

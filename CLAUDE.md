@@ -40,7 +40,16 @@ old computer and the project discs, the cat's hollow (footer). Next.js 16, vanil
   scope (scope pass in `play.ts`: tunnel-in, lens bend, colour fringe, scope shadow, glare, duplex reticle). The
   eyepiece shows the live view. Hits: hit marker, "+1" with the distance ("23m!"), the animal bursts into its own
   pixels with cartoon-red spray (jam, not gore). The notice board and the monitor's glass can be shot to pieces.
-  E puts a floppy into the computer. You can wade into the water (rings, splashes). Esc shows a wooden sign menu.
+  E puts a floppy into the computer. You can wade into the water (rings, splashes).
+- Pill mode extras: leaves and bushes are 3D volumes (`foliage.ts`: lumpy cores + leaf-stamp cards fixed in 3D, chunked).
+  A coarse second shadow map covers the whole roam (`shadowFar` in `gl.ts`), so far light matches near light.
+  Mira's cottage across the lake (`cottage.ts`) and Mira (`seller.ts`: low-poly 3D pixel-art, anime head, cottagecore
+  outfit, ink outline, soft shading). E at her stall opens the shop (`components/play/Shop.tsx`); 4 opens your cases.
+  Points are the money (`wallet.ts`, saved in the browser); cases/skins/odds/paint in `loot.ts`; skins paint the 3D
+  weapons (`Arms.setSkin`). Case opening is a CS-style reel (`Opening.tsx`). Settings in `settings.ts`.
+  Weapons: one texel per screen pixel, warm ramps, ink outline in the composite; the pose holds still and the
+  bob/sway/breath move the finished picture by whole pixels (drawn with a margin so no edge shows). Knife: random
+  swings, combos on repeated clicks or holding, a spin finisher. The shotgun has iron sights (no crosshair aimed).
 
 ## The user's rules (keep this list current)
 - Professional, whimsical, hazy-film mood. Not gamey.
@@ -69,6 +78,12 @@ old computer and the project discs, the cat's hollow (footer). Next.js 16, vanil
   scroll goes on at once. Scrolling back up never catches. A finger's swipe or fling is caught too (next touch goes on).
 - On mobile, no 3D project text in the clearing: just Visit/Source buttons at the bottom.
 - Nothing in the page may be wider than the screen (a phone then loads zoomed out and the walk is measured wrong).
+- Pill mode menus (Esc, shop, cases) are the page's doodles on paper: pale paper, pen outline, hatched shadow, gingham
+  tape, dark ink text, pixel touches. Readability first. No key-hint lines above the hotbar, no arrow/tutorial to Mira.
+- Buttons (page, board, menus): pale paper, pixel ink outline; on hover they grow pixel moss with flowers. Dark
+  buttons stay dark on hover (deep moss green), never pale.
+- Weapon pixels must never crawl or swim; nothing may show a cut edge when the weapon moves.
+- Footsteps: one soft grass step (snow in winter), once per stride.
 
 ## Scripts
 - `npm run dev`, `npm run build`, `npm run lint` (tsc).

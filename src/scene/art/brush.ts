@@ -1,3 +1,4 @@
+import { PAL } from '../palette';
 import { clamp, hash2, mulberry, noise1, noise2, Pix, shade, type Ramp } from '../pix';
 
 /** The shared brushes. Light comes from above, a little from the left, the way it falls through a canopy. */
@@ -138,8 +139,10 @@ export function trunk(
     const h = bottom - top;
     const side = light < 0 ? -1 : 1;
     // a thick collar round the roots, then a few patches climbing the shaded side
-    mossPatch(p, cx, bottom - w * 0.35, w * 0.95, w * 0.42, o.moss, seed + 71, true, -0.04);
-    const patches = 2 + Math.floor(rnd() * 3) + Math.round((o.mossy ?? 0) * 20);
+    // under snow only a thin dark collar shows
+    const cold = PAL.snowy > 0;
+    mossPatch(p, cx, bottom - w * (cold ? 0.2 : 0.35), w * (cold ? 0.7 : 0.95), w * (cold ? 0.22 : 0.42), o.moss, seed + 71, true, cold ? -0.12 : -0.04);
+    const patches = cold ? 0 : 2 + Math.floor(rnd() * 3) + Math.round((o.mossy ?? 0) * 20);
     for (let i = 0; i < patches; i++) {
       const y = bottom - h * (0.12 + Math.pow(rnd(), 1.6) * 0.5);
       const x = cx - side * w * (0.15 + rnd() * 0.25);
@@ -409,6 +412,81 @@ export function mossCushion(p: Pix, cx: number, y: number, w: number, h: number,
       const len = 1 + Math.floor(rnd() * 4);
       for (let j = 1; j <= len; j++) p.set(x, y + j, shade(pal, 0.38 - j * 0.07));
       p.set(x, y + len + 1, shade(pal, 0.55));
+    }
+  }
+}
+
+/**
+ * A bare crown: limbs out of the trunk splitting into ever finer twigs, the way a beech or a birch looks in winter.
+ * Grown recursively from (x, y) at `ang` (radians, -π/2 is straight up), kept inside the crown oval (cx, cy, rx, ry).
+ * Birches let their finest twigs hang. Returns the twig tips, for the odd dry leaf or bud.
+ */
+export function branches(
+  p: Pix,
+  o: { x: number; y: number; ang: number; len: number; w: number; depth: number; pal: Ramp; seed: number; cx: number; cy: number; rx: number; ry: number; droop?: boolean },
+) {
+  const rnd = mulberry(o.seed);
+  const tips: [number, number][] = [];
+  const inside = (x: number, y: number) => ((x - o.cx) / o.rx) ** 2 + ((y - o.cy) / o.ry) ** 2 < 1.08;
+  const grow = (x: number, y: number, ang: number, len: number, w: number, depth: number) => {
+    let x1 = x + Math.cos(ang) * len;
+    let y1 = y + Math.sin(ang) * len;
+    // pull the tip back inside the crown
+    for (let k = 0; k < 6 && !inside(x1, y1); k++) {
+      x1 = x + (x1 - x) * 0.8;
+      y1 = y + (y1 - y) * 0.8;
+    }
+    if (w > 1.7) limb(p, x, y, x1, y1, w, w * 0.72, o.pal, o.seed + depth * 31 + Math.round(x));
+    else {
+      const c = o.pal[Math.min(o.pal.length - 1, w > 1.2 ? 1 : 2)];
+      p.line(x, y, x1, y1, c);
+    }
+    if (depth <= 0 || len < 3) {
+      tips.push([x1, y1]);
+      // birch twigs hang down from the ends of the branches
+      if (o.droop && rnd() < 0.8) {
+        const hang = 4 + rnd() * 9;
+        p.line(x1, y1, x1 + (rnd() - 0.5) * 3, y1 + hang, o.pal[2]);
+      }
+      return;
+    }
+    const n = rnd() < 0.35 ? 3 : 2;
+    for (let i = 0; i < n; i++) {
+      const spread = (i - (n - 1) / 2) * (0.5 + rnd() * 0.35) + (rnd() - 0.5) * 0.25;
+      // twigs bend back towards the sky as they go
+      const up = (-Math.PI / 2 - ang) * 0.18;
+      grow(x1, y1, ang + spread + up, len * (0.62 + rnd() * 0.16), w * 0.64, depth - 1);
+    }
+  };
+  grow(o.x, o.y, o.ang, o.len, o.w, o.depth);
+  return tips;
+}
+
+/**
+ * Snow lying on everything: every top edge gets a cap, thicker where the surface is broad (a branch's back, the
+ * top of a stump) and thin or none where it is steep (a trunk's side). Lit white on top, a cold blue in its shade.
+ * Paint it after the outline, so the snow isn't darkened with the rest.
+ */
+export function snowOn(p: Pix, pal: Ramp, seed: number, amount = 1, from = 0) {
+  const solid = (x: number, y: number) => x >= 0 && x < p.w && y >= 0 && y < p.h && p.data[y * p.w + x] >>> 24 > 0;
+  const src = p.data.slice();
+  const was = (x: number, y: number) => x >= 0 && x < p.w && y >= 0 && y < p.h && src[y * p.w + x] >>> 24 > 0;
+  const n = pal.length - 1;
+  for (let x = 0; x < p.w; x++) {
+    for (let y = Math.max(1, from); y < p.h; y++) {
+      if (!was(x, y) || was(x, y - 1)) continue;
+      const flat = (was(x - 1, y) ? 1 : 0) + (was(x + 1, y) ? 1 : 0);
+      const noise = hash2(x, y, seed);
+      if (flat === 0 && noise > 0.45 * amount) continue;
+      if (flat === 1 && noise > 0.85 * amount) continue;
+      const deep = flat === 2 ? 1 + Math.round(noise2(x * 0.3, y * 0.3, seed + 1) * 2.2 * amount) : 1;
+      for (let k = 0; k < deep; k++) {
+        if (!solid(x, y + k)) break;
+        const shadeSide = !was(x + 1, y + k) || k === deep - 1;
+        p.set(x, y + k, pal[Math.max(0, n - k - (shadeSide ? 2 : 0) - (hash2(x, y + k, seed + 2) < 0.15 ? 1 : 0))]);
+      }
+      // a little heap above a broad ledge
+      if (flat === 2 && amount > 0.6 && noise2(x * 0.2, y * 0.2, seed + 3) > 0.6 && !solid(x, y - 1)) p.set(x, y - 1, pal[n - 1]);
     }
   }
 }

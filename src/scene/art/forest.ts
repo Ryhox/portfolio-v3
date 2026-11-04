@@ -1,7 +1,8 @@
 import { CORRIDOR, texelAt } from '../config';
-import { PAL } from '../palette';
+import { PAL, SEASON } from '../palette';
 import { mulberry, noise1, Pix, shade, type Ramp } from '../pix';
-import { bush, canopy, clump, fern, ground, limb, trunk, tuft } from './brush';
+import { branches, bush, canopy, clump, fern, ground, limb, snowOn, trunk, tuft } from './brush';
+import { leafOf, seasonFern } from './trees';
 
 export type Tone = { leaf: Ramp; bark: Ramp; moss: Ramp; grass: Ramp };
 
@@ -116,23 +117,35 @@ export function edgeTree(side: -1 | 1): Layer {
     [60, 186, 74, 26, 24],
     [72, 242, 30, 10, 7],
   ];
-  const clumps: [number, number, number][] = [];
-  for (const [mx, my, sx, sy, n] of masses) {
-    for (let i = 0; i < n; i++) {
-      const u = rnd() * 2 - 1;
-      const x = tx + inward * (mx + u * sx);
-      const y = my + (rnd() * 2 - 1) * sy + Math.max(0, u) * sy * 0.6;
-      clumps.push([x, y, 8 + rnd() * 12]);
+  if (PAL.fullness <= 0) {
+    // bare for the winter: each mass is a limb splitting into twigs, a few dry leaves left on the ends
+    masses.forEach(([mx, my, sx, sy], i) => {
+      const ex = tx + inward * mx;
+      const sy0 = Math.min(ay - 40, my + sy * 1.4);
+      const ang = Math.atan2(my - sy0, ex - tx);
+      const tips = branches(p, { x: tx, y: sy0, ang, len: Math.hypot(ex - tx, my - sy0) * 0.75 + 10, w: 9 - i * 2, depth: 5, pal: bark, seed: seed + 40 + i, cx: ex, cy: my, rx: sx * 1.15, ry: sy * 1.5 + 10 });
+      for (const [x, y] of tips) if (rnd() < 0.12) clump(p, x, y, 2 + rnd() * 2, PAL.leaves.oak, seed + Math.round(x + y * 3), 0.05);
+    });
+  } else {
+    const clumps: [number, number, number][] = [];
+    for (const [mx, my, sx, sy, n] of masses) {
+      for (let i = 0; i < Math.round(n * PAL.fullness); i++) {
+        const u = rnd() * 2 - 1;
+        const x = tx + inward * (mx + u * sx);
+        const y = my + (rnd() * 2 - 1) * sy + Math.max(0, u) * sy * 0.6;
+        clumps.push([x, y, 8 + rnd() * 12]);
+      }
     }
+    clumps.sort((a, b) => a[1] - b[1]);
+    // in summer the edge of the wood is the lightest green; otherwise it wears the season like a beech
+    clumps.forEach(([x, y, r], i) => clump(p, x, y, r, SEASON === 'summer' ? leaf : leafOf('beech', rnd), seed * 7 + i, 0.02));
+    bush(p, tx + inward * 30, ay + 2, 40, 14, SEASON === 'summer' ? leaf : PAL.leaves.bush, seed + 9);
+    bush(p, tx - inward * 26, ay + 2, 30, 11, darker(SEASON === 'summer' ? leaf : PAL.leaves.bush, 1), seed + 10);
   }
-  clumps.sort((a, b) => a[1] - b[1]);
-  clumps.forEach(([x, y, r], i) => clump(p, x, y, r, leaf, seed * 7 + i, 0.02));
-
-  bush(p, tx + inward * 30, ay + 2, 40, 14, leaf, seed + 9);
-  bush(p, tx - inward * 26, ay + 2, 30, 11, darker(leaf, 1), seed + 10);
-  fern(p, tx + inward * 52, ay + 3, 16, leaf, seed + 11);
-  fern(p, tx - inward * 8, ay + 3, 12, leaf, seed + 12);
+  seasonFern(p, tx + inward * 52, ay + 3, 16, leaf, seed + 11);
+  seasonFern(p, tx - inward * 8, ay + 3, 12, leaf, seed + 12);
   p.outline();
+  if (PAL.snowy) snowOn(p, PAL.snow, seed + 13);
   p.bleed();
   return { pix: p, ax: tx, ay, d };
 }

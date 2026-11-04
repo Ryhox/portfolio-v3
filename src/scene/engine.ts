@@ -1,19 +1,33 @@
 import * as THREE from 'three';
 import { projects } from '@/content/projects';
-import { garland } from './art/garland';
 import { reedSprites } from './art/gear';
 import { CAT_SIZE, COMPUTER, KEYBOARD, noticeSprite, PAW_W, PILL_AT, pictureToScreen, screenIdle, screenPicture, type Notice, type NoticeText } from './art/props';
 import { cut, Shatter } from './shatter';
-import { atlas, CRITTERS, FLORA, TUFT_KINDS } from './art/sprites';
+import { atlas, CRITTERS, critterKind, FAUNA, TUFT_KINDS, type FloraInfo } from './art/sprites';
+import { LITTER } from './art/floor';
+import { pickSeason, type Season } from './season';
+import { Weather } from './weather';
+import { sfx } from '@/sound/sfx';
 import { BEECH_BARK, BIRCH_BARK, TREE_D, TREE_SET, type TreeKind } from './art/trees';
 import type { Painted } from './art/worker';
-import { ATMOS, CLEARING, CORRIDOR, DISC_WORLD, DISCS, EDGE_Z, FRAMES, HERO, HOLLOW, K0, PUDDLES, ROOF, SHORT_SIDE, SUN, texelAt } from './config';
-import { blitMesh, depthMaterial, floorMesh, fogMesh, layerMesh, light, meshFor, motes, quadFor, skyMesh, solidMesh, fixFacing, toTexture, view, type LayerMesh } from './gl';
-import { Gun } from './gun';
+import { atmosFor, CLEARING, CORRIDOR, DISC_WORLD, DISCS, EDGE_Z, FRAMES, HOLLOW, K0, PUDDLES, ROOF, SHORT_SIDE, SUN, SUN_TINT, texelAt } from './config';
+import { blitMesh, overlayMesh, depthMaterial, floorMesh, fogMesh, layerMesh, light, meshFor, motes, quadFor, skyMesh, solidMesh, fixFacing, toTexture, view, type LayerMesh } from './gl';
+import { Arms, WEAPONS } from './arms';
+import { Fauna, type Beast } from './fauna';
+import { Decals, Voxels } from './fx';
+import { medals, points } from './hunt';
+import { goldKnife } from '@/site/eggs';
+import type { Surface } from '@/sound/sfx';
 import { Controls, Hud, Puffs, RIPPLES, scopePass, waterMesh } from './play';
-import { Bake, barkTexture, cardGeometry, clumpSprites, crownCards, extrude, floppyTexture, keysTexture, ringsTexture, stumpGeometry, trunkGeometry, type Card } from './solid';
+import { Bake, barkTexture, extrude, floppyTexture, keysTexture, ringsTexture, stumpGeometry, trunkGeometry } from './solid';
+import { buildFoliage, type Grove } from './foliage';
+import { buildCottage, COTTAGE_BOXES, COTTAGE_POSTS, inCottage, MIRA, SHELF_KINDS, SIGN_PIVOT } from './cottage';
+import { Seller } from './seller';
+import { purse, wallet } from './wallet';
+import { CROSS_COLORS, PIXELS, settings } from './settings';
+import { CASE_KINDS, CASES, skinById, skinTiles, type CaseKind } from './loot';
 import { BOUNDS, critterSpots, EYE, extraTrees, GLADE, inBounds, LAKE, POND, RIVER, RIVER_W, SPAWN, waterDist } from './world';
-import { PAL } from './palette';
+import { PAL, setPalette } from './palette';
 import { hash2, hex, mix, mulberry, noise1, Pix, ramp, rgbOf, shade } from './pix';
 import { forest, forestNow } from './store';
 import { buttonState, paintBoard, type Look, type Painted as Board2D, type Para } from './boards';
@@ -22,8 +36,8 @@ type Opts = {
   canvas: HTMLCanvasElement;
   /** Current (smoothed) scroll position in CSS pixels. */
   scroll: () => number;
-  /** The heading whose font the floating name is set in. */
-  title: () => HTMLElement | null;
+  /** The season the wood is painted in. */
+  season: Season;
   onReady: () => void;
   /** Stops the scroll at this position until the current flick is over; false if it can't. */
   hold?: (to: number) => boolean;
@@ -48,9 +62,6 @@ const pixFrom = (m: Painted) => {
   return p;
 };
 
-const TEXT_Z = -3.2;
-/** The floating name's width in game pixels, the same on every screen. */
-const TEXT_PX = 200;
 const CRITTER_D = 9;
 const FLORA_D = 5;
 const SHADOW_SIZE = 1024;
@@ -65,26 +76,40 @@ type PainterMsg = Painted | { key: 'done'; group: number; times: number[] } | { 
  * each painting one group of the wood. Everything they send is kept, so a forest made again (hot reload,
  * React's double start in development) gets the whole lot replayed.
  */
-const painterInbox: { all: PainterMsg[]; listener: ((m: PainterMsg) => void) | null } = { all: [], listener: null };
-if (typeof window !== 'undefined' && typeof Worker !== 'undefined') {
+type Inbox = { all: PainterMsg[]; listener: ((m: PainterMsg) => void) | null };
+const inboxes = new Map<Season, Inbox>();
+/** Starts the three painters for a season (once): a wood painted in another season is kept, so going back is instant. */
+export function startPainters(season: Season): Inbox {
+  let box = inboxes.get(season);
+  if (box) return box;
+  const inbox: Inbox = { all: [], listener: null };
+  box = inbox;
+  inboxes.set(season, inbox);
+  if (typeof Worker === 'undefined') return inbox;
   for (let group = 0; group < 3; group++) {
     // a classic worker: that is what the production bundle starts it as (a module worker fails silently there)
     const w = new Worker(new URL('./art/worker.ts', import.meta.url));
     const put = (m: PainterMsg) => {
-      painterInbox.all.push(m);
-      painterInbox.listener?.(m);
+      inbox.all.push(m);
+      inbox.listener?.(m);
+      if (m.key === 'done' || m.key === 'failed') w.terminate();
     };
     w.onmessage = (e: MessageEvent<PainterMsg>) => put(e.data);
     w.onerror = (ev) => {
       console.warn('forest painter failed', ev.message);
       put({ key: 'failed' });
     };
-    w.postMessage(group);
+    w.postMessage({ group, season });
   }
+  return inbox;
 }
+if (typeof window !== 'undefined') startPainters(pickSeason());
 
 export function createForest(o: Opts) {
   THREE.ColorManagement.enabled = false;
+  const season = o.season;
+  setPalette(season);
+  const painterInbox = startPainters(season);
   const renderer = new THREE.WebGLRenderer({ canvas: o.canvas, antialias: false, alpha: false, depth: false, stencil: false, powerPreference: 'high-performance' });
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
   renderer.setPixelRatio(1);
@@ -98,6 +123,12 @@ export function createForest(o: Opts) {
   const fogged = new THREE.WebGLRenderTarget(4, 4, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false, depthBuffer: false });
   const shadow = new THREE.WebGLRenderTarget(SHADOW_SIZE, SHADOW_SIZE, { depthTexture: new THREE.DepthTexture(SHADOW_SIZE, SHADOW_SIZE) });
   light.shadowMap.value = shadow.depthTexture;
+  // pill mode's coarse map over the whole wood, for the light far off
+  const FAR_HALF = 120;
+  const sunFar = new THREE.OrthographicCamera(-FAR_HALF, FAR_HALF, FAR_HALF, -FAR_HALF, 30, 170);
+  sunFar.layers.enableAll();
+  const farShadow = new THREE.WebGLRenderTarget(2048, 2048, { depthTexture: new THREE.DepthTexture(2048, 2048) });
+  light.shadowFar.value = farShadow.depthTexture;
   light.sunDir.value.set(...SUN);
 
   // the view from below the ground, for the puddles
@@ -119,6 +150,9 @@ export function createForest(o: Opts) {
 
   const sky = skyMesh();
   scene.add(sky);
+  // what's in the air this season (fewer on phones)
+  const weather = new Weather(season, window.matchMedia('(pointer: coarse)').matches ? 0.5 : 1);
+  scene.add(weather.group);
 
   const layers: LayerMesh[] = [];
   const keyed: Record<string, LayerMesh> = {};
@@ -136,6 +170,8 @@ export function createForest(o: Opts) {
   // --- what the worker paints arrives here ------------------------------------------------------------
   let floor: THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial> | null = null;
   let floorPattern: THREE.DataTexture | null = null;
+  let floorLitterTex: THREE.DataTexture | null = null;
+  let floraInfo: FloraInfo | null = null;
   const discs: { mesh: LayerMesh; w: number; h: number; size: number; cx: number; cy: number; rest: THREE.Vector3; t: number; from: number; to: number; start: number; dur: number; lift: number }[] = [];
   const screen = { mesh: null as LayerMesh | null, pix: null as Pix | null, tex: null as THREE.DataTexture | null };
   const led = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0x1f241d }));
@@ -177,10 +213,18 @@ export function createForest(o: Opts) {
         floorPattern = toTexture(pix, { repeat: true });
         floorPattern.wrapT = THREE.RepeatWrapping;
         break;
+      case 'floorLitter':
+        // mipmapped: far off and at a slant the leaves average out instead of sparkling as you move
+        floorLitterTex = toTexture(pix, { repeat: true, mips: true });
+        floorLitterTex.wrapT = THREE.RepeatWrapping;
+        break;
       case 'floorRamps': {
         const rows = (m.extra as { rows: number }).rows;
-        floor = floorMesh(floorPattern!, toTexture(pix, { mips: false }), rows, 0.008);
+        floor = floorMesh(floorPattern!, toTexture(pix, { mips: false }), rows, 0.008, floorLitterTex);
         const fl = floor.material.uniforms;
+        fl.litterAmt.value = [...LITTER[season]];
+        fl.winter.value = season === 'winter' ? 1 : 0;
+        fl.exitX.value = CLEARING.exitX;
         fl.reflection.value = mirroredFog.texture;
         fl.res.value.set(size.W, size.H);
         PUDDLES.forEach((p, i) => fl.puddles.value[i].set(...p));
@@ -199,7 +243,7 @@ export function createForest(o: Opts) {
         break;
       }
       case 'flora':
-        scatterFlora(pix, m.extra as { x: number; y: number; w: number; h: number }[]);
+        scatterFlora(pix, m.extra as FloraInfo);
         break;
       case 'critters': {
         const e = m.extra as { rects: { x: number; y: number; w: number; h: number }[]; index: number[][] };
@@ -418,8 +462,11 @@ export function createForest(o: Opts) {
   }
 
   // --- flowers and mushrooms, all in one mesh --------------------------------------------------------
-  function scatterFlora(pix: Pix, rects: { x: number; y: number; w: number; h: number }[]) {
+  function scatterFlora(pix: Pix, info: FloraInfo) {
+    floraInfo = info;
+    const rects = info.rects;
     const rnd = mulberry(77);
+    const P = info.patches;
     const t = texelAt(FLORA_D);
     const pos: number[] = [];
     const uv: number[] = [];
@@ -439,14 +486,11 @@ export function createForest(o: Opts) {
       idx.push(n, n + 2, n + 1, n + 2, n + 3, n + 1);
       for (let a = 0; a < 4; a++) anchor.push(x, 0, z);
     };
-    // kinds: 0 daisy 1 daisies 2 buttercup 3 bluebells 4 campion 5 clover 6 toadstool 7 small toadstool 8 brown caps 9 sprout
-    const meadow = [0, 1, 2, 2, 3, 4, 5, 5, 0, 1];
-    const wood = [6, 7, 8, 8, 6, 3, 3, 0, 5, 2, 4, 7, 1];
-    const clearing = [0, 1, 2, 5, 3, 9];
-    const hollow = [6, 7, 6, 8, 4, 3];
+    // what grows where this season (the painter's lists)
+    const { meadow, wood, clearing, hollow } = info.sets;
     const off = (x: number, pathX: number, min: number) => Math.abs(x - pathX) > min;
     // the meadow at the edge of the wood is full of wildflowers, in patches
-    for (let i = 0; i < 120; i++) {
+    for (let i = 0; i < Math.round(120 * P); i++) {
       const px = (rnd() - 0.5) * 10;
       const pz = -0.6 - rnd() * 4.6;
       const n = 6 + Math.floor(rnd() * 10);
@@ -460,7 +504,7 @@ export function createForest(o: Opts) {
       }
     }
     // the wood: patches of mushrooms and wildflowers along both sides of the path
-    for (let i = 0; i < 230; i++) {
+    for (let i = 0; i < Math.round(230 * P); i++) {
       const z = -5.5 - rnd() * 62;
       const side = rnd() < 0.5 ? -1 : 1;
       const cx = side * (0.5 + Math.pow(rnd(), 1.4) * 3.6);
@@ -476,7 +520,7 @@ export function createForest(o: Opts) {
       }
     }
     // the clearing: flowers round the edge of the sun, kept off the discs
-    for (let i = 0; i < 220; i++) {
+    for (let i = 0; i < Math.round(220 * P); i++) {
       const a = rnd() * Math.PI * 2;
       const r = 1.2 + rnd() * 2.6;
       const x = CLEARING.computer.x + Math.cos(a) * r * 1.4;
@@ -485,7 +529,7 @@ export function createForest(o: Opts) {
       put(clearing[Math.floor(rnd() * clearing.length)], x, z);
     }
     // the hollow: toadstools round the stump
-    for (let i = 0; i < 140; i++) {
+    for (let i = 0; i < Math.round(140 * P); i++) {
       const a = rnd() * Math.PI * 2;
       const r = 0.7 + rnd() * 1.9;
       const x = CLEARING.exitX + Math.cos(a) * r;
@@ -506,7 +550,7 @@ export function createForest(o: Opts) {
     };
     // grass over the whole floor, scattered at random (a grid of tufts reads as a checkerboard)
     const cx = CLEARING.computer.x;
-    for (let i = 0; i < 11000; i++) {
+    for (let i = 0; i < Math.round(11000 * info.grass); i++) {
       {
         const gx = -7 + rnd() * 18;
         const gz = -0.3 - rnd() * 107;
@@ -514,7 +558,7 @@ export function createForest(o: Opts) {
         if (gz < -72.4 && gz > -74.55 && Math.abs(gx - cx) < 2.4) continue;
         if (gz < -74.95 && gz > -76.2 && Math.abs(gx - cx) < 1.2) continue;
         if (gz < -100.4 && gz > -101.8 && Math.abs(gx - CLEARING.exitX) < 0.8) continue;
-        put(FLORA.length + zoneAt(gz) * TUFT_KINDS + Math.floor(rnd() * TUFT_KINDS), gx, gz);
+        put(info.tufts + zoneAt(gz) * TUFT_KINDS + Math.floor(rnd() * TUFT_KINDS), gx, gz);
       }
     }
     const g = new THREE.BufferGeometry();
@@ -533,7 +577,8 @@ export function createForest(o: Opts) {
   function spawnCritters(tex: THREE.Texture) {
     if (!critterAtlas) return;
     const rnd = mulberry(91);
-    // kind (0 rabbit, 1 hedgehog, 2 squirrel, 3 bird, 4 frog), x, z: just off the path, all the way along
+    // role (0 small, 1 spiky, 2 climber, 3 bird, 4 by the water, 5 wings), x, z: just off the path, all the way along.
+    // Who fills each role is the season's: rabbits go white in winter, hedgehogs sleep and foxes come out
     const homes: [number, number, number][] = [
       [0, -1.2, -2.4], [3, 0.9, -1.9], [3, 1.2, -2.2], [4, -0.7, -1.5], [2, 1.6, -3.4],
       [1, -0.8, -8], [0, 0.9, -11], [3, -0.6, -14], [2, 1.0, -17], [4, -0.9, -20],
@@ -542,11 +587,15 @@ export function createForest(o: Opts) {
       [3, -0.7, -62], [4, 0.9, -65], [3, 1.8, -77.5], [1, -2.0, -76.5], [2, 2.5, -80],
       [0, CLEARING.exitX - 0.9, -85], [3, CLEARING.exitX + 0.8, -89],
       [4, CLEARING.exitX - 1.1, -99], [3, CLEARING.exitX + 1.3, -100.5], [0, CLEARING.exitX + 1.9, -102],
+      [5, -0.9, -3.1], [5, 1.4, -12.5], [5, -2.6, -33], [5, 1.6, -78.2],
     ];
     critterTex = tex;
-    for (const [kind, x, z] of homes) makeCritter(kind, x, z, rnd);
+    for (const [role, x, z] of homes) makeCritter(roleKind(role), x, z, rnd);
   }
   let critterTex: THREE.Texture | null = null;
+  const ROLES = ['small', 'spiky', 'climber', 'bird', 'water', 'wing'] as const;
+  const BIRDS = new Set(['robin', 'jay', 'bullfinch', 'butterfly']);
+  const roleKind = (role: number) => critterKind(FAUNA[season][ROLES[role]]);
   function makeCritter(kind: number, x: number, z: number, rnd: () => number) {
     const frames = critterAtlas!.index[kind];
     const r0 = critterAtlas!.rects[frames[0]];
@@ -599,68 +648,21 @@ export function createForest(o: Opts) {
       const fi = c.state === 'move' ? frames[Math.floor(c.phase) % frames.length] : frames[Math.floor((now + c.phase) * 1.5) % frames.length];
       const r = critterAtlas.rects[critterAtlas.index[c.kind][fi]];
       setFrame(c.mesh, r, critterAtlas.w, critterAtlas.h, c.dir < 0, c.mesh.userData.boxH as number);
-      const hop = c.state === 'move' && def.hop ? Math.abs(Math.sin(c.phase * Math.PI * 0.5)) * def.hop : 0;
+      let hop = c.state === 'move' && def.hop ? Math.abs(Math.sin(c.phase * Math.PI * 0.5)) * def.hop : 0;
+      // butterflies never land: they bob along in the air over the flowers
+      if (def.fly) {
+        c.phase += dt * 10;
+        hop = 0.28 + Math.sin(now * 2.1 + c.origin.x * 3) * 0.12 + Math.sin(now * 5.3 + c.origin.y) * 0.04;
+      }
       // snap to the texel grid so they move like pixel art
       const t = texelAt(CRITTER_D);
       c.mesh.position.set(Math.round(c.x / t) * t, Math.round(hop / t) * t, c.z);
     }
   }
 
-  // --- the floating name ------------------------------------------------------------------------------
-  let text: LayerMesh | null = null;
+  // the floating name lives on the page now (the site's own hero); the wood only keeps a flag for "fonts are in"
   let textGaveUp = false;
-  let textW = 0;
-  function buildText() {
-    const h1 = o.title();
-    const family = h1 ? getComputedStyle(h1).fontFamily : 'Georgia, serif';
-    const target = Math.min(TEXT_PX, Math.round(size.W * 0.8));
-    if (text && Math.abs(target - textW) < 6) return;
-    textW = target;
-    const c = document.createElement('canvas');
-    const g = c.getContext('2d', { willReadFrequently: true })!;
-    let fs = 100;
-    g.font = `700 ${fs}px ${family}`;
-    fs = Math.max(12, Math.round((fs * target) / Math.max(1, g.measureText('ryhox').width)));
-    g.font = `700 ${fs}px ${family}`;
-    const m = g.measureText('ryhox');
-    const asc = Math.ceil(m.actualBoundingBoxAscent);
-    const desc = Math.ceil(m.actualBoundingBoxDescent);
-    // room round the word for the flowers that dress it: posies stand on the tops, a sprig hangs off the y
-    const pad = 6;
-    const top = 10;
-    const letters = [...'ryhox'].map((_, i): [number, number] => [
-      Math.floor(2 + pad + g.measureText('ryhox'.slice(0, i)).width),
-      Math.ceil(2 + pad + g.measureText('ryhox'.slice(0, i + 1)).width),
-    ]);
-    c.width = Math.ceil(m.width) + 4 + pad * 2;
-    c.height = asc + desc + 4 + top + 4;
-    g.font = `700 ${fs}px ${family}`;
-    g.fillStyle = '#000';
-    g.textBaseline = 'alphabetic';
-    g.fillText('ryhox', 2 + pad, asc + 2 + top);
-    const data = g.getImageData(0, 0, c.width, c.height).data;
-    const p = new Pix(c.width, c.height);
-    const ink = hex('#1c2a1d');
-    const edge = hex('#2c3d2b');
-    for (let i = 0; i < c.width * c.height; i++) {
-      const a = data[i * 4 + 3];
-      if (a > 150) p.data[i] = ink;
-      else if (a > 90) p.data[i] = edge;
-    }
-    garland(p, asc + 2 + top, letters, 7);
-    p.bleed();
-    const mesh = layerMesh({ pix: p, ax: p.w / 2, ay: asc * 0.62 + 2 + top, d: HERO.z - TEXT_Z }, {}, false, 0.35);
-    if (text) {
-      scene.remove(text);
-      layers.splice(layers.indexOf(text), 1);
-      text.geometry.dispose();
-    }
-    text = add(mesh, HERO.x, HERO.y, TEXT_Z);
-    text.userData.born = -1;
-    // drawn last and always on top (nothing stands in front of it), still writing its depth for the fog
-    text.renderOrder = 50;
-    mesh.material.depthFunc = THREE.AlwaysDepth;
-  }
+  let hung = false;
 
   // --- words hung in the forest, painted sharp and drawn over the pixels ------------------------------------
   type Board = { key: string; mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>; art: Board2D; d: number; z: number; at: () => [number, number] };
@@ -783,15 +785,6 @@ export function createForest(o: Opts) {
   }
 
   function hangAll() {
-    const m = 24;
-    const toPx = (css: number) => (css * (size.devW / size.cssW)) / size.scale;
-    // the socials, low on the left of the meadow: you walk past them
-    const sd = 2.4;
-    hang('socials', [linksRow('socials', Math.round(Math.min(20, Math.max(14, size.cssW / 110))))], 640, sd, HERO.z - sd, () => {
-      const k = perCss(sd);
-      const b = boards.socials.art;
-      return [HERO.x + (-size.W / 2 + toPx(m)) * sd * K0 - 8 * k, HERO.y - (size.H / 2 - toPx(m)) * sd * K0 + (b.h - 8) * k];
-    }, 'none');
     // the words beside the computer: written right on the old notice board where it has room beside the
     // computer; on other wide screens they float high on the right, over the canopy. On phones and tall windows
     // only the project's links show, as buttons at the bottom of the page
@@ -934,11 +927,14 @@ export function createForest(o: Opts) {
     sh.burst(onNotice, texelAt(NOTICE_D), turn, from, 97);
     notice.state = 'broken';
     notice.shake = reduced ? 0 : 0.4;
+    // every way it goes (shot, walked through on the walk, run or hopped through in pill mode) it's heard
+    sfx.play('board', playing ? placeSound(from.x, from.z) : {});
   }
   /** A new board pulls itself out of the ground; the old pieces sink away. */
   function raiseNotice() {
     notice.state = 'rising';
     notice.rise = 0;
+    sfx.play('boardUp', { gain: 0.8 });
     notice.shatter?.sink();
     const sp = notice.sprite;
     if (sp && notice.shatter) {
@@ -1005,7 +1001,7 @@ export function createForest(o: Opts) {
       else delete buttonState[id];
       if (next === 'press') pressedAt[id] = performance.now();
       // the socials hang on their own board even where the work's words are on the notice board
-      if (boards.socials) hangAll();
+      if (hung) hangAll();
     };
     // a quick click still shows the button going down: it stays pressed a moment, however short the click
     const held = performance.now() - (pressedAt[id] ?? -1e9);
@@ -1128,10 +1124,11 @@ export function createForest(o: Opts) {
   }
 
   // --- sizing -----------------------------------------------------------------------------------------
-  const size = { W: 1, H: 1, scale: 1, devW: 1, devH: 1, cssW: 1, cssH: 1, offX: 0, offY: 0, wide: true, restX: 0 };
+  const size = { W: 1, H: 1, fovH: 1, scale: 1, devW: 1, devH: 1, cssW: 1, cssH: 1, offX: 0, offY: 0, wide: true, restX: 0 };
   let walk = new THREE.CatmullRomCurve3([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]);
   let leave = new THREE.CatmullRomCurve3([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]);
-  const stages = { a: 1, b: 2, c: 3 };
+  /** start: the wood begins to show (the page above it starts to fall away); walk: the walk sets off; a/b: the clearing; c: the cat */
+  const stages = { start: 0, walk: 0, a: 1, b: 2, c: 3 };
 
   function measure() {
     const work = document.querySelector<HTMLElement>('[data-stage="work"]');
@@ -1143,6 +1140,10 @@ export function createForest(o: Opts) {
       stages.a = work.offsetTop;
       stages.b = work.offsetTop + work.offsetHeight - screen;
     }
+    // the page above the wood: the walk only sets off once it has fallen away
+    const dive = document.querySelector<HTMLElement>('[data-stage="dive"]');
+    stages.start = dive ? dive.offsetTop : 0;
+    stages.walk = dive ? Math.min(stages.a - 1, dive.offsetTop + dive.offsetHeight - (dive.querySelector<HTMLElement>('.dive-stick')?.offsetHeight || window.innerHeight)) : 0;
     stages.c = Math.max(stages.b + 1, max);
   }
 
@@ -1182,8 +1183,10 @@ export function createForest(o: Opts) {
     });
     if (dust) (dust.material as THREE.ShaderMaterial).uniforms.box.value.makeScale(2.4, 2.2, 1.2).setPosition(CLEARING.computer.x - 1.0, 0.05, CLEARING.computer.z - 0.4);
     const rest = new THREE.Vector3(size.restX, CLEARING.camY, CLEARING.camZ);
+    // the way in: no walk from the edge of the wood, just the last few steps up to the computer, taken while the
+    // drawing of the clearing (the page's, over the wood) comes alive into it
     walk = new THREE.CatmullRomCurve3(
-      [new THREE.Vector3(HERO.x, HERO.y, HERO.z), new THREE.Vector3(0, 0.88, -9), new THREE.Vector3(0.04, 0.82, -24), new THREE.Vector3(0.08, 0.74, -40), new THREE.Vector3(size.restX * 0.5, 0.62, -56), rest],
+      [new THREE.Vector3(size.restX * 0.55, 0.66, CLEARING.camZ + 4.5), new THREE.Vector3(size.restX * 0.85, 0.57, CLEARING.camZ + 1.9), rest],
       false,
       'centripetal',
     );
@@ -1202,7 +1205,10 @@ export function createForest(o: Opts) {
     size.devH = devH ?? Math.round(cssH * dpr);
     size.cssW = cssW;
     size.cssH = cssH;
-    size.scale = Math.max(1, Math.round(Math.min(size.devW, size.devH) / SHORT_SIDE));
+    // the view is always as wide as the wood's own pixels make it (fovH); in pill mode the pixels may be finer
+    const short = Math.min(size.devW, size.devH);
+    size.fovH = Math.ceil(size.devH / Math.max(1, Math.round(short / SHORT_SIDE)));
+    size.scale = Math.max(1, Math.round(short / (playing ? PIXELS[settings.get().pixels] : SHORT_SIDE)));
     size.W = Math.ceil(size.devW / size.scale);
     size.H = Math.ceil(size.devH / size.scale);
     size.offX = (size.W * size.scale - size.devW) / 2;
@@ -1215,7 +1221,7 @@ export function createForest(o: Opts) {
     mirroredFog.setSize(Math.ceil(size.W / 2), Math.ceil(size.H / 2));
     floor?.material.uniforms.res.value.set(size.W, size.H);
     camera.aspect = size.W / size.H;
-    camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan((size.H * K0) / 2));
+    camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan((size.fovH * K0) / 2));
     camera.updateProjectionMatrix();
     const u = blit.material.uniforms;
     u.lowRes.value.set(size.W, size.H);
@@ -1226,8 +1232,7 @@ export function createForest(o: Opts) {
     placeEdge();
     placeClearing();
     measure();
-    if (text) buildText();
-    if (boards.socials) hangAll();
+    if (hung) hangAll();
   }
 
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1327,8 +1332,26 @@ export function createForest(o: Opts) {
   }
 
   // --- light and fog along the walk ---------------------------------------------------------------------
-  const atmos = ATMOS.map((a) => ({ ...a, fogV: v3(a.fog), skyV: v3(a.sky), zenithV: v3(a.zenith) }));
+  const atmos = atmosFor(season).map((a) => ({ ...a, fogV: v3(a.fog), skyV: v3(a.sky), zenithV: v3(a.zenith) }));
   const air = { fog: new THREE.Vector3(), sky: new THREE.Vector3(), zenith: new THREE.Vector3(), clouds: 0, density: 0.03, falloff: 3, ambient: 0.9, shafts: 1, sun: 1 };
+  /** Pill mode's light: the same everywhere (only the fog is the place's own), so light never runs ahead of you. */
+  const still = { ambient: 0.92, sun: 1.12 };
+  /** The walk's weather laid out along the world, for pill mode's fog to read where each bit of it is. */
+  function fogZones() {
+    const fz = fog.material.uniforms;
+    atmos.forEach((a, i) => {
+      if (i > 7) return;
+      fz.zoneZ.value[i] = a.z;
+      (fz.zoneFog.value as THREE.Vector3[])[i].copy(a.fogV);
+      fz.zoneDen.value[i] = a.density;
+      fz.zoneFall.value[i] = a.falloff;
+      fz.zoneShaft.value[i] = a.shafts;
+    });
+    // the puddles' fog reads the very same
+    const mz = fogMirror.material.uniforms;
+    for (const k of ['zoneZ', 'zoneFog', 'zoneDen', 'zoneFall', 'zoneShaft'] as const) mz[k] = fz[k];
+  }
+  fogZones();
   function airAt(z: number) {
     let i = 0;
     while (i < atmos.length - 2 && z < atmos[i + 1].z) i++;
@@ -1391,10 +1414,10 @@ export function createForest(o: Opts) {
     return el;
   };
 
-  function placePins(atClearing: boolean, near: boolean) {
+  function placePins(atClearing: boolean, near: boolean, discsOn = atClearing) {
     const st = forest.get();
     const layer = $('discs');
-    const active = atClearing ? 'true' : 'false';
+    const active = discsOn ? 'true' : 'false';
     if (layer && layer.dataset.active !== active) layer.dataset.active = active;
     // on phones and tall windows, the picked project's links wait at the bottom of the screen
     const bar = $('work-bar');
@@ -1494,9 +1517,42 @@ export function createForest(o: Opts) {
     for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) out.push(...(grid.get(cellKey(i0 + i, j0 + j)) ?? []));
     return out;
   }
-  /** How far along a flat ray (x, z) → (fx, fz) the first trunk is, or null if none within max. */
-  function firstSolid(x: number, z: number, fx: number, fz: number, max: number) {
+  /** The side of the cottage the last ray met (for its mark), if that's what it met. */
+  const boxNormal = new THREE.Vector3();
+  let boxHit = false;
+  /**
+   * How far along a flat ray (x, z) → (fx, fz) the first trunk (or wall of the cottage) is, or null if none within
+   * max. `y0` and `tanP` say how high the ray is along the way, so it can pass over the stall and the roof.
+   */
+  function firstSolid(x: number, z: number, fx: number, fz: number, max: number, y0 = 0.5, tanP = 0) {
     let best = Infinity;
+    boxHit = false;
+    for (const b of COTTAGE_BOXES) {
+      if (b.off) continue;
+      let t0 = 0;
+      let t1 = max;
+      let ax = 0;
+      let az = 0;
+      for (const [o, f, lo, hi, axis] of [[x, fx, b.x0, b.x1, 0], [z, fz, b.z0, b.z1, 1]] as const) {
+        if (Math.abs(f) < 1e-9) {
+          if (o < lo || o > hi) t0 = Infinity;
+          continue;
+        }
+        const ta = (lo - o) / f;
+        const tb = (hi - o) / f;
+        const near = Math.min(ta, tb);
+        if (near > t0) {
+          t0 = near;
+          ax = axis === 0 ? -Math.sign(f) : 0;
+          az = axis === 1 ? -Math.sign(f) : 0;
+        }
+        t1 = Math.min(t1, Math.max(ta, tb));
+      }
+      if (t0 > t1 || t0 >= best || y0 + tanP * t0 > b.h) continue;
+      best = t0;
+      boxHit = true;
+      boxNormal.set(ax, 0, az);
+    }
     for (const so of solids) {
       const ox = so.x - x;
       const oz = so.z - z;
@@ -1506,7 +1562,11 @@ export function createForest(o: Opts) {
       const qz = oz - fz * t;
       const d2 = qx * qx + qz * qz;
       if (d2 > so.r * so.r) continue;
-      best = Math.min(best, t - Math.sqrt(so.r * so.r - d2));
+      const tt = t - Math.sqrt(so.r * so.r - d2);
+      if (tt < best) {
+        best = tt;
+        boxHit = false;
+      }
     }
     return best <= max ? best : null;
   }
@@ -1544,7 +1604,7 @@ export function createForest(o: Opts) {
   }
 
   /** Grass over all the ground the walk never covered, wildflowers round the lake, mushrooms in the wood. */
-  function playFlora() {
+  function playFlora(info: FloraInfo) {
     const rnd = mulberry(1717);
     const items: [number, number, number][] = [];
     const pick = (a: number, b: number, t: number) => (rnd() < t ? b : a);
@@ -1554,8 +1614,10 @@ export function createForest(o: Opts) {
       const x = -34 + rnd() * 70;
       const z = -114 + rnd() * 162;
       if (x > -7 && x < 11 && z < -0.3 && z > -107.3) continue;
+      if (inCottage(x, z)) continue;
       if (waterDist(x, z) < 0.12) continue;
-      items.push([FLORA.length + zone(z) * TUFT_KINDS + Math.floor(rnd() * TUFT_KINDS), x, z]);
+      if (rnd() > info.grass) continue;
+      items.push([info.tufts + zone(z) * TUFT_KINDS + Math.floor(rnd() * TUFT_KINDS), x, z]);
     }
     const patch = (cx: number, cz: number, n: number, kinds: number[], r: number) => {
       for (let k = 0; k < n; k++) {
@@ -1563,17 +1625,16 @@ export function createForest(o: Opts) {
         const a = rnd() * Math.PI * 2;
         const x = cx + Math.cos(a) * rr;
         const z = cz + Math.sin(a) * rr * 0.7;
-        if (waterDist(x, z) > 0.2) items.push([kinds[Math.floor(rnd() * kinds.length)], x, z]);
+        if (waterDist(x, z) > 0.2 && !inCottage(x, z)) items.push([kinds[Math.floor(rnd() * kinds.length)], x, z]);
       }
     };
-    const meadow = [0, 1, 2, 2, 3, 4, 5, 5, 0, 1];
-    const wood = [6, 7, 8, 8, 6, 3, 3, 0, 5, 2, 4, 7, 1];
-    for (let i = 0; i < 170; i++) {
+    const { meadow, wood, ring } = info.sets;
+    for (let i = 0; i < Math.round(170 * info.patches); i++) {
       const a = rnd() * Math.PI * 2;
       const r = Math.sqrt(rnd()) * 0.95;
       patch(GLADE.x + Math.cos(a) * r * GLADE.rx, GLADE.z + Math.sin(a) * r * GLADE.rz, 5 + Math.floor(rnd() * 9), meadow, 0.45);
     }
-    for (let i = 0; i < 320; i++) {
+    for (let i = 0; i < Math.round(320 * info.patches); i++) {
       const x = BOUNDS.x0 + rnd() * (BOUNDS.x1 - BOUNDS.x0);
       const z = -8 - rnd() * 100;
       if (x > -5 && x < 9) continue;
@@ -1583,7 +1644,7 @@ export function createForest(o: Opts) {
     // a fairy ring of toadstools in the dark beside the pond
     for (let i = 0; i < 16; i++) {
       const a = (i / 16) * Math.PI * 2;
-      items.push([i % 3 ? 6 : 7, 11.2 + Math.cos(a) * 1.15, -51 + Math.sin(a) * 0.9]);
+      items.push([ring[i % ring.length], 11.2 + Math.cos(a) * 1.15, -51 + Math.sin(a) * 0.9]);
     }
     return items;
   }
@@ -1594,7 +1655,12 @@ export function createForest(o: Opts) {
     const out: [number, number, number][] = [];
     const clump = (x: number, z: number) => {
       const n = 1 + Math.floor(rnd() * 3);
-      for (let k = 0; k < n; k++) out.push([Math.floor(rnd() * 3), x + (rnd() - 0.5) * 0.3, z + (rnd() - 0.5) * 0.2]);
+      for (let k = 0; k < n; k++) {
+        const kind = Math.floor(rnd() * 3);
+        const rx = x + (rnd() - 0.5) * 0.3;
+        const rz = z + (rnd() - 0.5) * 0.2;
+        if (!inCottage(rx, rz)) out.push([kind, rx, rz]);
+      }
     };
     for (const [e, count] of [[LAKE, 46], [POND, 16]] as const) {
       for (let i = 0; i < count; i++) {
@@ -1630,7 +1696,12 @@ export function createForest(o: Opts) {
   let aimDepth = Infinity;
   let lastTurn: [number, number] = [0, 0];
   const scopeSway = new THREE.Vector2();
-  let gun: Gun | null = null;
+  let arms: Arms | null = null;
+  let fauna: Fauna | null = null;
+  let voxels: Voxels | null = null;
+  let decals: Decals | null = null;
+  /** The hunt: points, kills, the streak, your breath, the spread of your shots, the turns you've made. */
+  const hunt = { kills: 0, points: 0, streak: 0, first: true, chainAt: [] as number[], scopedAt: -9, yawHist: [] as [number, number][], breath: 1, holding: false, tired: 0, beat: 0, spread: 0, recoil: 0, jumpedAt: -9 };
   let scope: ReturnType<typeof scopePass> | null = null;
   let lens: THREE.WebGLRenderTarget | null = null;
   let prompt: string | null = null;
@@ -1639,6 +1710,129 @@ export function createForest(o: Opts) {
   const ray = new THREE.Raycaster();
   const props3d = { discs: [] as LayerMesh[], board: [] as LayerMesh[], boardFor: null as Notice | null, pc: null as LayerMesh | null };
   let screenBroken = false;
+  /** Mira, and whether you're near her (she waves as you come up) */
+  let seller: Seller | null = null;
+  let miraNear = false;
+  const unwatch: (() => void)[] = [];
+  /** The skin each weapon wears, from what you have on at Mira's. */
+  function applySkins() {
+    if (!arms) return;
+    for (const w of WEAPONS) {
+      const it = purse.worn(w);
+      const sk = it ? skinById(it.skin) : undefined;
+      const key = it && sk ? it.uid : '';
+      // only painted when it changes, so this is cheap enough to ask every frame
+      if (arms.wears(w) === key) continue;
+      arms.setSkin(w, key, it && sk ? skinTiles(sk, it.seed, it.wear) : null);
+    }
+  }
+  /**
+   * What can be broken at Mira's: the three cases on her table, the shop window's glass, each case on the shelves
+   * behind it, the barrel by the door. Shot or cut, each bursts into its own bits with the right sound, and is
+   * back a while later (Mira tidies up). The sign hanging out front swings when it's hit.
+   */
+  type Breakable = { meshes: LayerMesh[]; kind: 'crate' | 'shelf' | 'glass' | 'barrel' | 'box' | 'lamp'; colors: string[]; dead: number; at: THREE.Vector3; then?: () => void };
+  const breakables: Breakable[] = [];
+  const shopSign = { meshes: [] as LayerMesh[], angle: 0, vel: 0, creak: 0 };
+  function buildBreakables(parts: Map<string, LayerMesh[]>) {
+    const centre = (ms: LayerMesh[]) => {
+      const box = new THREE.Box3();
+      for (const m of ms) {
+        m.geometry.computeBoundingBox();
+        box.union(m.geometry.boundingBox!);
+      }
+      return box.getCenter(new THREE.Vector3());
+    };
+    const caseColors = (k: CaseKind) => [CASES[k].color, CASES[k].dark, '#c9a04a', '#e8c873'];
+    const put = (meshes: LayerMesh[] | undefined, kind: Breakable['kind'], colors: string[]) => meshes?.length && breakables.push({ meshes, kind, colors, dead: 0, at: centre(meshes) });
+    for (const k of CASE_KINDS) put(parts.get(k), 'crate', caseColors(k));
+    SHELF_KINDS.forEach((k, i) => put(parts.get(`shelf${i}`), 'shelf', caseColors(k)));
+    put(parts.get('glass'), 'glass', ['#f4fbf8', '#cfe0dc', '#a8c4c0', '#ffffff']);
+    put([...(parts.get('barrel') ?? []), ...(parts.get('barrelLid') ?? [])], 'barrel', ['#6e4a2a', '#875e36', '#a07444', '#3a3631', '#54361e']);
+    put(parts.get('crateTop'), 'box', ['#3a2414', '#54361e', '#6e4a2a', '#875e36']);
+    put(parts.get('crateBig'), 'box', ['#54361e', '#6e4a2a', '#875e36', '#a07444']);
+    put(parts.get('lamp'), 'lamp', ['#fff6d0', '#ffe9a8', '#f2c25a', '#e8b850']);
+    // the barrel's and the bottom box's bumps go with them; the top box falls with the one under it
+    const barrel = breakables.find((b) => b.kind === 'barrel');
+    if (barrel) barrel.then = () => Object.assign(COTTAGE_POSTS[1], { x: 1e6, z: 1e6 });
+    const [top, big] = breakables.filter((b) => b.kind === 'box');
+    if (big)
+      big.then = () => {
+        COTTAGE_BOXES[2].off = true;
+        if (top && top.dead <= 0) smash(top);
+      };
+    shopSign.meshes = [...(parts.get('sign') ?? []), ...(parts.get('signwood') ?? [])];
+  }
+  /** Everything breakable (still whole) and the sign, along the ray, nearest first, out to `far`. */
+  function shopHits(far = Infinity) {
+    const list: THREE.Object3D[] = [...shopSign.meshes];
+    for (const b of breakables) if (b.dead <= 0) list.push(...b.meshes);
+    ray.near = 0;
+    ray.far = far;
+    const hits = ray.intersectObjects(list, false);
+    ray.far = Infinity;
+    return hits.map((h) => ({ h, b: breakables.find((b) => b.meshes.includes(h.object as LayerMesh)) ?? null, sign: shopSign.meshes.includes(h.object as LayerMesh) }));
+  }
+  function smash(b: Breakable) {
+    // broken until the page is loaded again
+    b.dead = 1;
+    for (const m of b.meshes) m.userData.dead = true;
+    const glass = b.kind === 'glass' || b.kind === 'lamp';
+    voxels?.burst(b.at, b.colors, b.kind === 'barrel' ? 40 : glass ? 50 : 26, glass ? 0.018 : b.kind === 'barrel' ? 0.035 : 0.026, glass ? 1.3 : 1.8);
+    puffs?.burst(tv.copy(b.at), glass ? ['#ffffff', '#e4f0ec', '#cfe0dc'] : ['#ece6d4', '#d8d2c0', '#a07444'], !glass, glass ? 18 : 12);
+    const ps = placeSound(b.at.x, b.at.z);
+    if (glass) sfx.play('glass', { ...ps, gain: ps.gain * 1.4 });
+    else {
+      sfx.play('wood', { ...ps, rate: b.kind === 'barrel' ? 0.7 : 1 });
+      sfx.play('thud', ps);
+      if (b.kind === 'barrel') sfx.play('board', { ...ps, gain: ps.gain * 0.6 });
+    }
+    seller?.flinch();
+    b.then?.();
+  }
+  /** The sign, hit: it swings away from the hit, about its bar; a shot leaves a hole in it and knocks chips off. */
+  function swingSign(fromZ: number, hit?: THREE.Intersection) {
+    if (hit?.uv) {
+      const tex = (hit.object as LayerMesh).material.uniforms.map.value as THREE.DataTexture;
+      const img = tex.image as { data: Uint8Array; width: number; height: number };
+      const hx = Math.floor((hit.uv.x - Math.floor(hit.uv.x)) * img.width);
+      const hy = Math.floor((hit.uv.y - Math.floor(hit.uv.y)) * img.height);
+      const put = (x: number, y: number, c: number[]) => {
+        if (x < 0 || y < 0 || x >= img.width || y >= img.height) return;
+        img.data.set([...c, 255], (y * img.width + x) * 4);
+      };
+      for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) put(hx + dx, hy + dy, [26, 20, 16]);
+      for (const [dx, dy] of [[-1, 0], [2, 1], [0, -1], [1, 2], [-1, 2], [2, -1]]) if (Math.random() < 0.7) put(hx + dx, hy + dy, [200, 168, 120]);
+      tex.needsUpdate = true;
+      puffs?.burst(tv.copy(hit.point), ['#c8a878', '#a07444', '#6e4a2a', '#e2c898'], false, 12);
+    }
+    shopSign.vel += (fromZ >= 0 ? -1 : 1) * 4.5;
+    const ps = placeSound(SIGN_PIVOT[0], SIGN_PIVOT[2]);
+    sfx.play('wood', { ...ps, rate: 1.3 });
+    sfx.play('creak', ps);
+  }
+  function updateShop(dt: number) {
+    // the sign on its bar: a pendulum, damped
+    shopSign.vel += (-38 * Math.sin(shopSign.angle) - 1.3 * shopSign.vel) * dt;
+    shopSign.angle = Math.max(-1.3, Math.min(1.3, shopSign.angle + shopSign.vel * dt));
+    for (const m of shopSign.meshes) m.rotation.x = shopSign.angle;
+    // it creaks at the top of each swing while it's still going
+    shopSign.creak -= dt;
+    if (Math.abs(shopSign.vel) < 0.4 && Math.abs(shopSign.angle) > 0.25 && shopSign.creak <= 0) {
+      shopSign.creak = 0.35;
+      sfx.play('creak', { ...placeSound(SIGN_PIVOT[0], SIGN_PIVOT[2]), gain: 0.5 });
+    }
+  }
+
+  /** Opens one of pill mode's pages over the wood (the shop, your cases), letting the mouse go. */
+  function openPanel(kind: 'shop' | 'cases') {
+    forest.set({ panel: kind });
+    if (kind === 'shop') {
+      seller?.wave();
+      sfx.play('hello', placeSound(MIRA.x, MIRA.z));
+    } else sfx.play('unlock', { gain: 0.5 });
+    if (document.pointerLockElement) document.exitPointerLock();
+  }
 
   function buildPlay() {
     if (playBuilt) return;
@@ -1659,37 +1853,66 @@ export function createForest(o: Opts) {
     // what you bump into: trunks (bushes you push through), the computer, the stump
     const R: Record<string, number> = { oak: 0.2, beech: 0.16, birch: 0.11, young: 0.08, ancient: 0.36, bush: 0 };
     solids = all.filter((t) => R[t.kind] > 0).map((t) => ({ x: t.x, z: t.z, r: R[t.kind] * t.s }));
-    solids.push({ x: CLEARING.computer.x, z: CLEARING.computer.z - 0.2, r: 0.5 }, { x: CLEARING.exitX, z: HOLLOW.stumpZ, r: 0.66 });
+    solids.push({ x: CLEARING.computer.x, z: CLEARING.computer.z - 0.2, r: 0.5 }, { x: CLEARING.exitX, z: HOLLOW.stumpZ, r: 0.66 }, ...COTTAGE_POSTS);
     for (const so of solids) {
       const k = cellKey(Math.floor(so.x / 2), Math.floor(so.z / 2));
       const list = grid.get(k);
       if (list) list.push(so);
       else grid.set(k, [so]);
     }
-    if (floraArt) spriteBatch(floraArt, FLORA_D, playFlora());
+    if (floraArt && floraInfo) spriteBatch(floraArt, FLORA_D, playFlora(floraInfo));
     const reeds = atlas(reedSprites());
     spriteBatch({ pix: reeds.pix, rects: reeds.rects, tex: toTexture(reeds.pix, { mips: true }) }, 7, reedSpots());
     buildProps();
-    // more animals all over, and frogs by the water
-    if (critterAtlas && critterTex) {
-      const rnd = mulberry(616);
-      const ck = [0, 0, 0, 1, 1, 2, 2, 2, 3, 3, 3, 4];
-      critterSpots(46, 617).forEach(([x, z], i) => {
-        makeCritter(ck[i % ck.length], x, z, rnd).mesh.userData.playOnly = true;
-      });
-      for (let i = 0; i < 10; i++) {
-        const e = i < 6 ? LAKE : POND;
-        const a = rnd() * Math.PI * 2;
-        makeCritter(4, e.x + Math.cos(a) * (e.rx + 0.5), e.z + Math.sin(a) * (e.rz + 0.5), rnd).mesh.userData.playOnly = true;
-      }
+    // Mira's cottage across the lake, and Mira
+    const shopParts = new Map<string, LayerMesh[]>();
+    for (const { key, geo, tex } of buildCottage()) {
+      // the sign turns about the bar it hangs from
+      const hung = key === 'sign' || key === 'signwood';
+      if (hung) geo.translate(-SIGN_PIVOT[0], -SIGN_PIVOT[1], -SIGN_PIVOT[2]);
+      geo.computeBoundingSphere();
+      const m = add(solidMesh(geo, tex), hung ? SIGN_PIVOT[0] : 0, hung ? SIGN_PIVOT[1] : 0, hung ? SIGN_PIVOT[2] : 0);
+      Object.assign(m.userData, { playOnly: true, always: true });
+      shopParts.set(key, [...(shopParts.get(key) ?? []), m]);
     }
+    buildBreakables(shopParts);
+    seller = new Seller(MIRA.x, MIRA.z, Math.PI);
+    scene.add(seller.group);
+    for (const m of seller.meshes) {
+      renderer.initTexture(m.material.uniforms.map.value as THREE.Texture);
+      layers.push(m);
+    }
+    // the skins she sells, worn as soon as they're put on
+    unwatch.push(wallet.subscribe(() => playing && applySkins()));
+    let pixelsWere = settings.get().pixels;
+    unwatch.push(
+      settings.subscribe(() => {
+        if (!playing) return;
+        sfx.setVolume(settings.get().volume);
+        // finer or chunkier pixels: the frame is laid out again
+        if (settings.get().pixels !== pixelsWere) {
+          pixelsWere = settings.get().pixels;
+          resize();
+        }
+      }),
+    );
+    const cheer = () => seller?.cheer();
+    window.addEventListener('mira-cheer', cheer);
+    unwatch.push(() => window.removeEventListener('mira-cheer', cheer));
+    // the season's animals, in 3D, all over the wood
+    fauna = new Fauna(season, critterSpots(70, 617), mulberry(616));
+    fauna.group.visible = false;
+    scene.add(fauna.group);
+    voxels = new Voxels();
+    decals = new Decals();
+    scene.add(voxels.mesh, decals.mesh);
     water = waterMesh(floorPattern!, mirroredFog.texture, 0.008 * 256);
     scene.add(water);
     playHide.push(water);
     puffs = new Puffs();
     scene.add(puffs.points);
     hud = new Hud();
-    gun = new Gun();
+    arms = new Arms(goldKnife());
     scope = scopePass();
     lens = new THREE.WebGLRenderTarget(size.W, size.H, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false, depthBuffer: false });
     // a lid of leaves over the wood past the walk's own roof, so the sun doesn't pour in beyond the fence
@@ -1717,7 +1940,7 @@ export function createForest(o: Opts) {
   function plantSolidTrees(list: Planted[]) {
     const tmpl = new Map<TreeKind, THREE.BufferGeometry>();
     const bakes = new Map<string, Bake>();
-    const cards: Card[] = [];
+    const groves: Grove[] = [];
     const m4 = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const sv = new THREE.Vector3();
@@ -1736,7 +1959,7 @@ export function createForest(o: Opts) {
         if (!b) bakes.set(key, (b = new Bake()));
         b.add(g, m4);
       }
-      crownCards(tr.kind, tr.x, tr.z, tr.s, far, rnd, cards);
+      groves.push({ kind: tr.kind, x: tr.x, z: tr.z, s: tr.s, far });
     }
     const barks: Record<string, THREE.Texture> = {
       mid: barkTexture(PAL.mid.bark, { moss: PAL.mid.moss, seed: 41 }),
@@ -1745,9 +1968,8 @@ export function createForest(o: Opts) {
       deep: barkTexture(PAL.deep.bark, { moss: PAL.mid.moss, seed: 44 }),
     };
     for (const [key, b] of bakes) Object.assign(add(solidMesh(b.geometry(), barks[key]), 0, 0, 0).userData, { playOnly: true, always: true });
-    const leaves = atlas(clumpSprites());
-    const lm = add(meshFor(cardGeometry(cards, leaves.rects, leaves.pix.w, leaves.pix.h), toTexture(leaves.pix, { mips: true })), 0, 0, 0);
-    Object.assign(lm.userData, { playOnly: true, always: true });
+    // the crowns and the bushes in the round
+    for (const m of buildFoliage(groves, coarse)) Object.assign(add(m, 0, 0, 0).userData, { playOnly: true, always: true });
   }
 
   /** The stump, the computer, the keyboard and the floppies as solid things. */
@@ -1874,14 +2096,23 @@ export function createForest(o: Opts) {
   function enterPlay() {
     buildPlay();
     playing = true;
+    // pill mode may draw finer pixels than the walk (a setting)
+    if (settings.get().pixels !== 'chunky') resize();
     Object.assign(P, { x: SPAWN.x, z: SPAWN.z, y: 0, vy: 0, vx: 0, vz: 0, yaw: 0, pitch: -0.04, kick: 0, cool: 0.3, walk: 0 });
     Object.assign(wading, { ring: 0, dry: true, air: false });
-    for (const c of critters) {
-      c.mesh.scale.setScalar(CRIT_SCALE);
-      c.mesh.material.uniforms.lit.value = 0.55;
-    }
+    // the walk's flat animals stay on the walk; pill mode has its own, in the round
+    for (const c of critters) c.mesh.userData.offPlay = true;
+    if (fauna) fauna.group.visible = true;
+    if (voxels) voxels.mesh.visible = true;
+    if (decals) decals.mesh.visible = true;
+    hunt.breath = 1;
+    hunt.tired = 0;
+    hunt.holding = false;
     zoom = 1;
     aimT = 0;
+    applySkins();
+    sfx.setVolume(settings.get().volume);
+    sfx.play('pill');
     if (!controls) controls = new Controls(o.canvas, (locked) => playing && forest.set({ paused: !locked }));
     controls.attach();
     controls.locked = document.pointerLockElement === o.canvas;
@@ -1896,22 +2127,21 @@ export function createForest(o: Opts) {
     sunCam.left = sunCam.bottom = -30;
     sunCam.right = sunCam.top = 30;
     sunCam.updateProjectionMatrix();
-    if (text) {
-      text.material.depthFunc = THREE.LessEqualDepth;
-      text.renderOrder = 0;
-    }
     offer.t = 0;
     pinPoint($('pill-say'), 0, 0, 0, false);
     pinPoint($('pill-take'), 0, 0, 0, false);
-    hud?.setScore(score);
+    hud?.setScore(wallet.get().points, hunt.kills);
     lastScreen = '';
   }
 
   function exitPlay() {
     if (!playing) return;
     playing = false;
+    if (size.H !== size.fovH) resize();
     controls?.detach();
-    forest.set({ paused: false, prompt: null });
+    forest.set({ paused: false, prompt: null, panel: null });
+    sfx.setVolume(1);
+    pinPoint($('mira-say'), 0, 0, 0, false);
     prompt = null;
     if (water) water.visible = false;
     for (const l of lids) l.visible = false;
@@ -1925,19 +2155,19 @@ export function createForest(o: Opts) {
     sunCam.left = sunCam.bottom = -SHADOW_HALF;
     sunCam.right = sunCam.top = SHADOW_HALF;
     sunCam.updateProjectionMatrix();
-    if (text) {
-      text.material.depthFunc = THREE.AlwaysDepth;
-      text.renderOrder = 50;
-    }
     view.yaw.value = 0;
     view.lightYaw.value = 0;
     tiltPx = panPx = 0;
     zoom = 1;
     aimT = 0;
     camera.rotation.set(0, 0, 0);
-    camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan((size.H * K0) / 2));
+    camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan((size.fovH * K0) / 2));
     camera.updateProjectionMatrix();
+    if (fauna) fauna.group.visible = false;
+    if (voxels) voxels.mesh.visible = false;
+    decals?.clear();
     for (const c of critters) {
+      c.mesh.userData.offPlay = false;
       c.mesh.scale.setScalar(1);
       c.mesh.material.uniforms.lit.value = 1;
       c.x = c.origin.x;
@@ -1995,6 +2225,26 @@ export function createForest(o: Opts) {
           nz = so.z + (dz / d) * min;
         }
       }
+      // the cottage and the stall: out of the box, to the nearest side
+      for (const b of COTTAGE_BOXES) {
+        if (b.off) continue;
+        const cx = Math.max(b.x0, Math.min(nx, b.x1));
+        const cz = Math.max(b.z0, Math.min(nz, b.z1));
+        const dx = nx - cx;
+        const dz = nz - cz;
+        const d = Math.hypot(dx, dz);
+        if (d >= R) continue;
+        if (d > 1e-5) {
+          nx = cx + (dx / d) * R;
+          nz = cz + (dz / d) * R;
+        } else {
+          const m = Math.min(nx - b.x0, b.x1 - nx, nz - b.z0, b.z1 - nz);
+          if (m === nx - b.x0) nx = b.x0 - R;
+          else if (m === b.x1 - nx) nx = b.x1 + R;
+          else if (m === nz - b.z0) nz = b.z0 - R;
+          else nz = b.z1 + R;
+        }
+      }
     }
     const ok = (x: number, z: number) => inBounds(x, z, 0.3);
     if (ok(nx, nz)) {
@@ -2017,52 +2267,193 @@ export function createForest(o: Opts) {
   }
   const SPLASH = ['#e4eee9', '#bfd2cc', '#93aca6', '#6f8c86'];
 
+  /** What the ground under you is, for the sound of your steps. */
+  function surfaceAt(x: number, z: number): Surface {
+    const wd = waterDist(x, z);
+    if (wd < 0) return frozen(x, z) ? 'snow' : 'water';
+    if (season === 'winter') return 'snow';
+    const glade = ((x - GLADE.x) / GLADE.rx) ** 2 + ((z - GLADE.z) / GLADE.rz) ** 2 < 1;
+    if (season === 'autumn' && !glade) return 'leaves';
+    return glade || z > -6 ? 'grass' : 'dirt';
+  }
+  const onRiver = (x: number, z: number) => {
+    for (let i = 0; i < RIVER.length - 1; i++) {
+      const [ax, az] = RIVER[i];
+      const [bx, bz] = RIVER[i + 1];
+      const vx = bx - ax;
+      const vz = bz - az;
+      const t = Math.max(0, Math.min(1, ((x - ax) * vx + (z - az) * vz) / (vx * vx + vz * vz)));
+      if (Math.hypot(x - ax - vx * t, z - az - vz * t) < RIVER_W) return true;
+    }
+    return false;
+  };
+  /** Winter freezes the lake and the pond (you walk on the ice); the river keeps running. */
+  const frozen = (x: number, z: number) => season === 'winter' && !onRiver(x, z);
+
+  /** How a sound at (x, z) sits: left or right of where you look, and how loud from here. */
+  function placeSound(x: number, z: number) {
+    const dx = x - P.x;
+    const dz = z - P.z;
+    const d = Math.hypot(dx, dz);
+    const rx = Math.cos(P.yaw);
+    const rz = -Math.sin(P.yaw);
+    return { pan: d > 0.01 ? (dx * rx + dz * rz) / d : 0, gain: 1 / (1 + d * 0.12) };
+  }
+
+  /** Running speed, by what you carry: lighter with the knife. */
+  const RUN = { rifle: 4.3, shotgun: 4.6, knife: 5.3 };
+  const WALK = 2.5;
   function updatePlayer(dt: number) {
     const c = controls!;
-    paused = !c.touch && !c.locked;
-    // raising the rifle to the eye, then the scope's view coming in
-    aimT = Math.max(0, Math.min(1, aimT + ((c.zoom && !paused ? 1 : -1) * dt) / 0.2));
-    const scoped = smooth(0.7, 1, aimT);
-    zoom = 1 + 2.4 * scoped;
+    const a = arms!;
+    const panel = forest.get().panel;
+    paused = (!c.touch && !c.locked) || panel !== null;
+    const t = clock;
+    // 4: your cases, opened over the wood (and 4 again puts them away)
+    if (c.swap === 4) {
+      c.swap = null;
+      if (panel === 'cases') {
+        forest.set({ panel: null });
+        c.lock();
+      } else if (!panel && !(!c.touch && !c.locked)) openPanel('cases');
+    }
+    // weapons: swapping, reloading, inspecting
+    if (!paused) {
+      if (c.swap !== null) {
+        if (c.swap === 'q') a.swapLast();
+        else if (c.swap === 'next') a.cycle(1);
+        else if (c.swap === 'prev') a.cycle(-1);
+        else a.switchTo(WEAPONS[c.swap - 1] ?? a.current);
+      }
+      if (c.reload) a.reload();
+      if (c.inspect) a.inspect();
+    }
+    c.swap = null;
+    c.reload = c.inspect = false;
+    // raising the weapon to the eye: the rifle's scope comes up; the shotgun's sights, a little zoom
+    const wantAim = c.zoom && !paused && a.aims && a.action !== 'reload' && a.action !== 'deploy';
+    const was = aimT;
+    aimT = Math.max(0, Math.min(1, aimT + ((wantAim ? 1 : -1) * dt) / 0.2));
+    if (a.current !== 'rifle' && aimT > 0.7 && a.current === 'shotgun') aimT = Math.min(aimT, 1);
+    const scoped = a.current === 'rifle' ? smooth(0.7, 1, aimT) : 0;
+    if (scoped >= 1 && was < 1) {
+      hunt.scopedAt = t;
+      sfx.play('zoom');
+    }
+    if (scoped <= 0) hunt.scopedAt = -9;
+    zoom = a.current === 'rifle' ? 1 + 2.4 * scoped : a.current === 'shotgun' ? 1 + 0.28 * smooth(0, 1, aimT) : 1;
     lastTurn = [c.dx, c.dy];
     if (!paused) {
-      const sens = (c.touch ? 0.0045 : 0.0022) / zoom;
+      const S = settings.get();
+      const sens = ((c.touch ? 0.0045 : 0.0022) / zoom) * S.sens * (aimT > 0.5 ? S.scopeSens : 1);
       P.yaw -= c.dx * sens;
-      P.pitch = Math.max(-0.6, Math.min(0.6, P.pitch - c.dy * sens));
+      P.pitch = Math.max(-0.6, Math.min(0.6, P.pitch - c.dy * sens * (S.invertY ? -1 : 1)));
     }
     c.dx = c.dy = 0;
-    // through the scope your breathing moves the view, slowly
-    const t = clock;
-    const drift = (k: number) => [Math.sin(k * 0.7) * 0.004 + Math.sin(k * 1.9) * 0.001, Math.sin(k * 1.1 + 1) * 0.003];
+    // how far you've turned lately, for the flicks and the 360s
+    hunt.yawHist.push([t, P.yaw]);
+    while (hunt.yawHist.length && t - hunt.yawHist[0][0] > 1.3) hunt.yawHist.shift();
+    // holding your breath behind the scope (Shift): steady for a few seconds, then shaking while you get it back
+    const wantsBreath = scoped > 0.5 && (c.keys.has('ShiftLeft') || c.keys.has('ShiftRight')) && hunt.tired <= 0;
+    if (wantsBreath && !hunt.holding && hunt.breath > 0.15) {
+      hunt.holding = true;
+      hunt.beat = t;
+      sfx.play('breathIn', { gain: 0.8 });
+    }
+    if (hunt.holding && (!wantsBreath || hunt.breath <= 0)) {
+      hunt.holding = false;
+      sfx.play('breathOut', { gain: hunt.breath <= 0 ? 1 : 0.5 });
+      if (hunt.breath <= 0) hunt.tired = 2.6;
+    }
+    if (hunt.holding) {
+      hunt.breath = Math.max(0, hunt.breath - dt / 3.6);
+      if (t - hunt.beat > 0.75) {
+        hunt.beat = t;
+        sfx.play('heart', { gain: 0.5 });
+      }
+    } else hunt.breath = Math.min(1, hunt.breath + dt / (hunt.tired > 0 ? 6 : 3));
+    hunt.tired = Math.max(0, hunt.tired - dt);
+    // through the scope your breathing moves the view; moving makes it worse, held breath all but stills it
+    const wd = waterDist(P.x, P.z);
+    const ice = frozen(P.x, P.z);
+    const wet = P.y <= 0 && wd < 0 && !ice;
+    const depth = wet ? Math.min(1, -wd / 1.1) : 0;
+    const hv = Math.hypot(P.vx, P.vz);
+    const sway = scoped * (hunt.holding ? 0.12 : hunt.tired > 0 ? 2.6 : 1) * (1 + Math.min(2, hv * 0.4) + (P.y > 0 ? 3 : 0));
+    const drift = (k: number) => [Math.sin(k * 0.7) * 0.004 + Math.sin(k * 1.9) * 0.0012 + Math.sin(k * 4.3) * 0.0006, Math.sin(k * 1.1 + 1) * 0.003 + Math.sin(k * 2.7) * 0.0008];
     const [d0, d1] = drift(t - dt);
     const [e0, e1] = drift(t);
-    P.yaw += (e0 - d0) * scoped;
-    P.pitch += (e1 - d1) * scoped;
-    const wd = waterDist(P.x, P.z);
-    const wet = P.y <= 0 && wd < 0;
-    const depth = wet ? Math.min(1, -wd / 1.1) : 0;
+    P.yaw += (e0 - d0) * sway;
+    P.pitch += (e1 - d1) * sway;
+    // moving, the way Source does it: acceleration on the ground with friction, and in the air a little
+    // strafing control that a good turn turns into speed (bunny hopping)
     const [mx, mz] = paused ? [0, 0] : c.move();
-    const speed = (c.running && aimT < 0.5 ? 4.6 : 2.5) * (1 - depth * 0.45) * (1 - aimT * 0.45);
+    const run = !scoped && (c.running || a.current === 'knife');
+    const top = (run ? RUN[a.current] : WALK) * (1 - depth * 0.45) * (1 - aimT * (a.current === 'rifle' ? 0.55 : 0.3));
     const sy = Math.sin(P.yaw);
     const cy = Math.cos(P.yaw);
-    // right is (cos, 0, -sin), forward is (-sin, 0, -cos)
-    const wx = (cy * mx - sy * mz) * speed;
-    const wz = (-sy * mx - cy * mz) * speed;
-    const a = 1 - Math.exp(-dt * (P.y > 0 ? 2.5 : 11));
-    P.vx += (wx - P.vx) * a;
-    P.vz += (wz - P.vz) * a;
+    let wx = cy * mx - sy * mz;
+    let wz = -sy * mx - cy * mz;
+    const wl = Math.hypot(wx, wz);
+    if (wl > 1e-4) {
+      wx /= wl;
+      wz /= wl;
+    }
+    const wishSpeed = top * Math.min(1, wl);
+    const accel = (speed: number, k: number, cap = speed) => {
+      const cur = P.vx * wx + P.vz * wz;
+      const add = cap - cur;
+      if (add <= 0) return;
+      const acc = Math.min(k * speed * dt, add);
+      P.vx += acc * wx;
+      P.vz += acc * wz;
+    };
+    const ground = P.y <= 0;
+    // a jump pressed a moment before you land still counts; holding Space hops again, but loses a little to friction
+    const buffered = t - c.jumpAt < 0.14 && c.jumpAt > hunt.jumpedAt;
+    const wantsJump = !paused && ground && (buffered || c.hopping);
+    if (ground) {
+      if (!(wantsJump && buffered)) {
+        const sp = Math.hypot(P.vx, P.vz);
+        if (sp > 0) {
+          const drop = Math.max(sp, 1.6) * (wet ? 8 : 6) * dt;
+          const k = Math.max(0, sp - drop) / sp;
+          P.vx *= k;
+          P.vz *= k;
+        }
+      }
+      if (wl > 1e-4) accel(wishSpeed, 10);
+    } else if (wl > 1e-4) accel(wishSpeed, 14, 0.62);
+    // a speed limit somewhere well past running, so nobody leaves the wood
+    const hs = Math.hypot(P.vx, P.vz);
+    if (hs > 13) {
+      P.vx *= 13 / hs;
+      P.vz *= 13 / hs;
+    }
+    const was0 = P.x;
+    const was1 = P.z;
     moveTo(P.x + P.vx * dt, P.z + P.vz * dt);
-    if (c.jump && P.y <= 0 && !paused) P.vy = 2.7;
+    throughBoard(was0, was1);
+    if (wantsJump) {
+      P.vy = 2.9;
+      hunt.jumpedAt = c.jumpAt;
+      sfx.play('jump', { gain: 0.4 });
+    }
     c.jump = false;
     P.vy -= 9.5 * dt;
     P.y += P.vy * dt;
     if (P.y <= 0) {
+      if (!ground && P.vy < -2) sfx.play('land', { gain: Math.min(0.6, -P.vy * 0.12), rate: ice ? 1.5 : 1 });
+      if (!ground) sfx.step(season === 'winter' ? 'snow' : 'grass', { gain: 0.45 });
       P.y = 0;
       P.vy = 0;
     }
     const v = Math.hypot(P.vx, P.vz);
     P.walk = P.y > 0 ? 0 : Math.min(1, v / 2.5);
+    const before = Math.floor(P.step / Math.PI);
     P.step += dt * v * 2.6;
+    // a footstep each stride (each dip of the head's bob): grass, or snow in winter
+    if (P.y <= 0 && Math.floor(P.step / Math.PI) !== before && v > 0.6) sfx.step(season === 'winter' ? 'snow' : 'grass', { gain: 0.3 + Math.min(0.25, v * 0.05) });
     // wading: rings spreading from your legs as you go, a splash with each stride, a big one jumping in
     if (wet) {
       wading.ring -= dt;
@@ -2072,6 +2463,7 @@ export function createForest(o: Opts) {
         ripple(P.x, P.z, 1);
         ripple(P.x + fx, P.z + fz, 0.7);
         puffs?.burst(tv.set(P.x - sy * 0.35, 0.04, P.z - cy * 0.35), SPLASH, false, wading.air ? 26 : 16);
+        sfx.play('splash', { gain: wading.air ? 0.7 : 0.4 });
         wading.ring = 0.3;
       } else if ((v > 0.35 && wading.ring <= 0) || wading.ring < -1.4) {
         ripple(P.x - sy * 0.5, P.z - cy * 0.5, 0.45 + 0.45 * Math.min(1, v / 3));
@@ -2079,58 +2471,108 @@ export function createForest(o: Opts) {
         wading.ring = 0.36 - 0.14 * Math.min(1, v / 4);
       }
     }
-    wading.dry = !(wd < 0);
+    wading.dry = !(wd < 0) || ice;
     wading.air = P.y > 0;
-    // the shot lifts the view a little, and it settles back
+    // the shot kicks the view up a little, and it settles back; the spread blooms with each shot and settles
     P.kick *= Math.exp(-dt * 9);
+    hunt.recoil *= Math.exp(-dt * 3.2);
     const pitch = P.pitch + P.kick;
     camera.rotation.set(0, P.yaw, 0);
-    camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan((size.H * K0) / 2 / zoom));
+    camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan((size.fovH * K0) / 2 / zoom));
     camera.updateProjectionMatrix();
     // looking up and down: a shear of the picture (verticals stay vertical), never a tilt of the camera
     const pm = camera.projectionMatrix;
     pm.elements[9] = Math.tan(pitch) * pm.elements[5];
     camera.projectionMatrixInverse.copy(pm).invert();
-    tiltPx = (Math.tan(pitch) * zoom) / K0;
-    panPx = (P.yaw * zoom) / K0;
-    if (c.fire) {
-      c.fire = false;
-      if (!paused && P.cool <= 0) shoot(pitch);
+    tiltPx = ((Math.tan(pitch) * zoom) / K0) * (size.H / size.fovH);
+    panPx = ((P.yaw * zoom) / K0) * (size.H / size.fovH);
+    // how wide a shot goes: still and scoped, it goes where you look; on the move, in the air, from the hip, it
+    // goes wide; the shotgun's pellets spread anyway
+    const moving = Math.min(1.5, v / RUN.rifle);
+    const air = P.y > 0 ? 1 : 0;
+    hunt.spread =
+      a.current === 'rifle'
+        ? (scoped > 0.9 ? 0.0006 : 0.05) + moving * (scoped > 0.9 ? 0.018 : 0.04) + air * 0.12 + hunt.recoil
+        : a.current === 'shotgun'
+          ? 0.068 - aimT * 0.03 + moving * 0.02 + air * 0.05 + hunt.recoil * 0.5
+          : 0;
+    // the trigger; the knife keeps slashing while the button is held, its right button stabs
+    if (!paused) {
+      if (a.current === 'knife') {
+        if ((c.fire || c.fireHeld) && a.ready && a.trigger(false)) swing(false);
+        else if (c.alt && a.ready && a.trigger(true)) swing(true);
+      } else if (c.fire && a.trigger()) shoot(pitch);
     }
-    P.cool -= dt;
+    c.fire = false;
+    c.alt = false;
     return eye.set(P.x, EYE + P.y - depth * 0.2 + Math.sin(P.step * 2) * 0.02 * P.walk * (1 - aimT), P.z);
   }
 
-  /** The animal under the crosshair, if a shot would reach it (no trunk in the way); its distance in aimDepth. */
-  function aim(pitch: number): Critter | null {
-    aimDepth = Infinity;
-    if (!critterAtlas || !playing) return null;
+  type Hit = { b: Beast; t: number; head: boolean };
+  /**
+   * Every animal along a shot from your eye, nearest first: the shot is a ray straight out from the middle of the
+   * view, turned by `dyaw` and tipped by `dpitch` (its spread), up to `max` away. A couple of screen pixels' grace
+   * all round, so small things far off are still fair to hit; a smaller target, the head, for a headshot.
+   */
+  function shotHits(pitch: number, dyaw: number, dpitch: number, max: number): Hit[] {
+    if (!fauna) return [];
     const cam = camera.position;
-    const fx = -Math.sin(P.yaw);
-    const fz = -Math.cos(P.yaw);
-    const tanP = Math.tan(pitch);
-    const tc = texelAt(CRITTER_D);
-    let best: Critter | null = null;
-    let bd = 60;
-    for (const c of critters) {
-      if (c.dead > 0 || !c.mesh.visible) continue;
-      const p = c.mesh.position;
-      const ox = p.x - cam.x;
-      const oz = p.z - cam.z;
+    const yaw = P.yaw + dyaw;
+    const fx = -Math.sin(yaw);
+    const fz = -Math.cos(yaw);
+    const tanP = Math.tan(pitch + dpitch);
+    const out: Hit[] = [];
+    for (const b of fauna.beasts) {
+      if (b.dead > 0) continue;
+      const ox = b.x - cam.x;
+      const oz = b.z - cam.z;
       const depth = ox * fx + oz * fz;
-      if (depth < 0.3 || depth > bd) continue;
-      // a couple of game pixels' grace all round: small things far off are still fair to hit
-      const tol = (2.2 * depth * K0) / zoom;
+      if (depth < 0.2 || depth > max) continue;
       const side = ox * -fz + oz * fx;
-      const ay = tanP * depth;
-      const oy = p.y - cam.y;
-      if (Math.abs(side) > (c.w * tc * CRIT_SCALE) / 2 + tol || ay < oy - tol || ay > oy + c.box * tc * CRIT_SCALE + tol) continue;
-      if (firstSolid(cam.x, cam.z, fx, fz, depth) !== null) continue;
-      best = c;
-      bd = depth;
+      const s = b.scale;
+      const [hl, ht, hw] = b.def.box;
+      const across = Math.abs(Math.sin(b.head - Math.atan2(fz, fx))) * hl * s + Math.abs(Math.cos(b.head - Math.atan2(fz, fx))) * hw * s;
+      const tol = ((b.def.small ? 2.4 : 1.4) * depth * K0) / zoom;
+      const ry = cam.y + tanP * depth;
+      if (Math.abs(side) > across + tol || ry < b.y - tol || ry > b.y + ht * s + tol) continue;
+      fauna.headPos(b, tv);
+      const hd = tv.x - cam.x;
+      const hz = tv.z - cam.z;
+      const hDepth = hd * fx + hz * fz;
+      const hSide = hd * -fz + hz * fx;
+      const hy = cam.y + tanP * hDepth;
+      const head = Math.hypot(hSide, hy - tv.y) < b.def.headR * s + tol * 0.4;
+      out.push({ b, t: depth, head });
     }
-    aimDepth = best ? bd : Infinity;
-    return best;
+    return out.sort((p, q) => p.t - q.t);
+  }
+
+  /** Running (or hopping) into the notice board bursts it, the way the walk flies through it. */
+  const boardDir = new THREE.Vector3();
+  function throughBoard(x0: number, z0: number) {
+    const b = props3d.board[0];
+    if (!b || b.userData.dead || notice.state !== 'standing') return;
+    const dx = P.x - x0;
+    const dz = P.z - z0;
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-4) return;
+    boardDir.set(dx / len, 0, dz / len);
+    let hit = false;
+    for (const h of [0.22, 0.45, 0.68]) {
+      ray.set(tv.set(x0, h + P.y, z0), boardDir);
+      ray.near = 0;
+      ray.far = len + 0.24;
+      if (ray.intersectObject(b, false).length) {
+        hit = true;
+        break;
+      }
+    }
+    ray.far = Infinity;
+    if (!hit) return;
+    breakNotice();
+    // it takes a little of your speed with it
+    P.vx *= 0.75;
+    P.vz *= 0.75;
   }
 
   /** How far along the view the notice board is, if the shot meets it. */
@@ -2141,67 +2583,291 @@ export function createForest(o: Opts) {
     return ray.intersectObject(b, false)[0]?.distance ?? null;
   }
 
-  function shoot(pitch: number) {
-    P.cool = 0.62;
-    P.kick += aimT > 0.7 ? 0.03 : 0.05;
-    hud?.fire();
-    gun?.fire();
-    const hit = aim(pitch);
-    const board = boardHit();
+  /** A kill: points, medals, the burst; birds that were flying, butterflies with a butterfly knife, all of it. */
+  function kill(h: Hit, collateral: number, metres: number, knife?: { combo: number; finisher: boolean }) {
+    const b = h.b;
+    const a = arms!;
+    const t = clock;
+    hunt.kills++;
+    hunt.streak++;
+    hunt.chainAt = hunt.chainAt.filter((k) => t - k < 2.2);
+    const ys = hunt.yawHist;
+    const spun = ys.length > 1 ? ys.reduce((s, [, y], i) => (i ? s + Math.abs(y - ys[i - 1][1]) : 0), 0) : 0;
+    const recent = ys.filter(([k]) => t - k < 0.16);
+    const flick = recent.length > 1 ? Math.abs(recent[recent.length - 1][1] - recent[0][1]) : 0;
+    const fwdx = Math.cos(b.head);
+    const fwdz = Math.sin(b.head);
+    const tox = P.x - b.x;
+    const toz = P.z - b.z;
+    const backstab = (fwdx * tox + fwdz * toz) / (Math.hypot(tox, toz) || 1) < -0.35;
+    const list = medals({
+      weapon: a.current,
+      aim: aimT,
+      scopedFor: hunt.scopedAt > 0 ? t - hunt.scopedAt : 99,
+      metres,
+      airborne: P.y > 0.05,
+      speed: Math.hypot(P.vx, P.vz) / RUN.knife,
+      wading: waterDist(P.x, P.z) < 0 && !frozen(P.x, P.z),
+      headshot: h.head,
+      backstab,
+      flying: b.fly > 0 || (!!b.def.flier && b.y > 0.25 && b.sp !== 'butterfly'),
+      species: b.sp,
+      spun,
+      flick,
+      collateral,
+      chain: hunt.chainAt.length,
+      streak: hunt.streak,
+      breath: hunt.holding,
+      first: hunt.first,
+      dark: P.z < -86,
+      combo: knife?.combo,
+      finisher: knife?.finisher,
+    });
+    hunt.first = false;
+    hunt.chainAt.push(t);
+    const { mult, points: pts } = points(list);
+    hunt.points += pts;
+    // the points are the money at Mira's
+    purse.earn(pts);
+    purse.streak(hunt.streak);
+    hud?.setScore(wallet.get().points, hunt.kills);
+    hud?.hit(true);
+    if (list.length) hud?.medals(list, mult);
+    // the burst: its own colours in little cubes, and a splash of cartoon jam
+    const at = fauna!.centre(b, new THREE.Vector3());
+    const big = b.def.small ? 0.022 : 0.045;
+    voxels?.burst(at, fauna!.colours(b), b.def.small ? 26 : 46, big, 1.6);
+    voxels?.burst(at, ['#e0304a', '#ff6a80', '#b81c34', '#ffa0b0'], b.def.small ? 14 : 24, big * 0.7, 2.2, 2.4);
+    puffs?.burst(tv.copy(at), ['#ece6d4', '#d8d2c0'], true, 10);
+    const ps = placeSound(b.x, b.z);
+    sfx.play('burst', { ...ps, gain: ps.gain * 0.8 });
+    sfx.play('squeak', { ...ps, rate: b.def.small ? 1.4 : 0.8 });
+    sfx.play('kill', { rate: 1 + Math.min(0.6, (mult - 1) * 0.05) });
+    if (list.length > 1 || mult >= 2) sfx.play('medal', { at: 0.12, rate: Math.min(1.6, 0.9 + mult * 0.03) });
+    tv.copy(at).setY(at.y + b.def.box[1] * b.scale * 0.6).project(camera);
+    hud?.plusOne((tv.x * 0.5 + 0.5) * hudFrame.W, (tv.y * 0.5 + 0.5) * hudFrame.H + 10, Math.max(1, Math.round(metres)), pts);
+    b.dead = 6 + Math.random() * 8;
+  }
+
+  /** Where a shot ended that hit no animal: the trunk, the ground, the water, the snow; its mark and its sound. */
+  function impact(pitch: number, dyaw: number, dpitch: number, max: number) {
     const cam = camera.position;
-    // the computer: the glass of its screen bursts; anywhere else on the case, sparks
+    const yaw = P.yaw + dyaw;
+    const fx = -Math.sin(yaw);
+    const fz = -Math.cos(yaw);
+    const tanP = Math.tan(pitch + dpitch);
+    const groundT = tanP < -0.005 ? Math.min(max, cam.y / -tanP) : max;
+    const trunk = firstSolid(cam.x, cam.z, fx, fz, groundT, cam.y, tanP);
+    if (trunk !== null) {
+      const y = cam.y + tanP * trunk;
+      if (y > 0 && y < 6) {
+        const wall = boxHit;
+        const hp = tv.set(cam.x + fx * trunk, y, cam.z + fz * trunk);
+        // the mark on the bark (or the cottage's wall), facing back out at you
+        const so = wall ? null : nearSolids(hp.x, hp.z).reduce<Solid | null>((best, s) => (!best || Math.hypot(s.x - hp.x, s.z - hp.z) < Math.hypot(best.x - hp.x, best.z - hp.z) ? s : best), null);
+        const n = wall ? boxNormal.clone() : so ? new THREE.Vector3(hp.x - so.x, 0, hp.z - so.z).normalize() : new THREE.Vector3(-fx, 0, -fz);
+        decals?.add(hp, n, 'bark', 0.07);
+        puffs?.burst(hp.clone().addScaledVector(n, 0.03), ['#4a4134', '#615645', '#c8a878', '#e2c898'], false, 14);
+        if (season === 'winter' && y > 1.2) puffs?.burst(hp.clone().setY(y + 0.2), ['#ffffff', '#e8eef2'], false, 10);
+        const ps = placeSound(hp.x, hp.z);
+        sfx.play('wood', { ...ps, rate: 0.9 + Math.random() * 0.2 });
+      }
+      return;
+    }
+    if (tanP >= -0.005 || groundT >= max) return;
+    const gx = cam.x + fx * groundT;
+    const gz = cam.z + fz * groundT;
+    const ps = placeSound(gx, gz);
+    const up = new THREE.Vector3(0, 1, 0);
+    if (waterDist(gx, gz) < 0 && !frozen(gx, gz)) {
+      ripple(gx, gz, 1);
+      puffs?.burst(tv.set(gx, 0.03, gz), SPLASH, false, 22);
+      sfx.play('splash', { ...ps, rate: 1.3 });
+      return;
+    }
+    if (waterDist(gx, gz) < 0) {
+      // ice: chips and a star of a crack
+      decals?.add(tv.set(gx, 0.015, gz), up, 'snow', 0.09);
+      puffs?.burst(tv.set(gx, 0.03, gz), ['#e8f2f8', '#c8dce8', '#ffffff'], false, 16);
+      sfx.play('glass', { ...ps, gain: ps.gain * 0.5 });
+      return;
+    }
+    const puddle = PUDDLES.some(([px, pz, rx, rz]) => ((gx - px) / rx) ** 2 + ((gz - pz) / rz) ** 2 < 1);
+    if (puddle && season !== 'winter') {
+      puffs?.burst(tv.set(gx, 0.03, gz), SPLASH, false, 18);
+      sfx.play('water', { ...ps, rate: 1.4 });
+      return;
+    }
+    if (season === 'winter') {
+      decals?.add(tv.set(gx, 0.006, gz), up, 'snow', 0.08);
+      puffs?.burst(tv.set(gx, 0.03, gz), ['#ffffff', '#eef3f6', '#dfe7ec', '#c4ced8'], true, 18);
+      sfx.play('snow', ps);
+      return;
+    }
+    decals?.add(tv.set(gx, 0.006, gz), up, 'earth', 0.07);
+    // autumn's leaves jump up where it lands
+    const cols = season === 'autumn' && surfaceAt(gx, gz) === 'leaves' ? ['#d48033', '#b55e21', '#dcc54a', '#866b2c', '#3b2f22'] : ['#3b2f22', '#5a4632', '#436433', '#7b9655'];
+    puffs?.burst(tv.set(gx, 0.02, gz), cols, false, 20);
+    sfx.play('dirt', ps);
+  }
+
+  /** The rifle (one bullet, which goes through an animal into the next) or the shotgun (nine pellets). */
+  function shoot(pitch: number) {
+    const a = arms!;
+    const rifle = a.current === 'rifle';
+    P.kick += rifle ? (aimT > 0.7 ? 0.03 : 0.05) : 0.075;
+    hunt.recoil += rifle ? 0.03 : 0.04;
+    hud?.fire();
+    const cam = camera.position;
+    // every animal for a good way round hears it and bolts
+    for (const b of fauna?.beasts ?? []) if (b.dead <= 0 && Math.hypot(b.x - cam.x, b.z - cam.z) < (rifle ? 16 : 11)) startle(b, cam.x, cam.z);
+    // Mira ducks when a shot goes anywhere near her (it never touches her)
+    if (seller) {
+      const fx0 = -Math.sin(P.yaw);
+      const fz0 = -Math.cos(P.yaw);
+      const ox = MIRA.x - cam.x;
+      const oz = MIRA.z - cam.z;
+      const along = ox * fx0 + oz * fz0;
+      const y = cam.y + Math.tan(pitch) * along;
+      if (along > 0 && along < 60 && Math.abs(ox * -fz0 + oz * fx0) < 0.7 && y > -0.2 && y < 1.3) {
+        seller.flinch();
+        sfx.play('eep', placeSound(MIRA.x, MIRA.z));
+      }
+    }
+    // the computer and the notice board, straight down the middle
     ray.setFromCamera(new THREE.Vector2(0, 0), camera);
     const pc = props3d.pc ? ray.intersectObject(props3d.pc, false)[0] : undefined;
-    if (pc && pc.distance < aimDepth && pc.distance < (board ?? Infinity)) {
+    const board = boardHit();
+    const first = shotHits(pitch, 0, 0, 80)[0];
+    const animalT = first ? first.t / Math.cos(pitch) : Infinity;
+    // Mira's things: the cases, the glass, the cases behind it, the barrel, the sign
+    ray.setFromCamera(new THREE.Vector2(0, 0), camera);
+    const shop = shopHits();
+    const sh0 = shop[0];
+    if (sh0 && sh0.h.distance < animalT && sh0.h.distance < (pc?.distance ?? Infinity) && sh0.h.distance < (board ?? Infinity)) {
+      if (sh0.sign) swingSign(-Math.cos(P.yaw), sh0.h);
+      else if (sh0.b) {
+        smash(sh0.b);
+        // a rifle bullet goes on through the glass into the case on the shelf behind it
+        if (rifle && sh0.b.kind === 'glass') {
+          const next = shop.find((x) => x.b && x.b.kind === 'shelf');
+          if (next?.b) smash(next.b);
+        }
+      }
+      hud?.hit();
+      return;
+    }
+    if (pc && pc.distance < animalT && pc.distance < (board ?? Infinity)) {
       const t = texelAt(CLEARING.camZ - CLEARING.computer.z);
       const ix = (pc.point.x - CLEARING.computer.x) / t + COMPUTER.ax - COMPUTER.screen.x;
       const iy = COMPUTER.ay - pc.point.y / t - COMPUTER.screen.y;
       const onGlass = ix >= 0 && iy >= 0 && ix < COMPUTER.screen.w && iy < COMPUTER.screen.h && pc.point.z > CLEARING.computer.z - 0.05;
-      if (onGlass && !screenBroken) breakScreen(ix, iy, pc.point);
-      else puffs?.burst(tv.copy(pc.point), ['#fff6c8', '#f2d36a', '#d9d2bc', '#857c68'], false, 14);
+      if (onGlass && !screenBroken) {
+        breakScreen(ix, iy, pc.point);
+        sfx.play('glass');
+      } else {
+        puffs?.burst(tv.copy(pc.point), ['#fff6c8', '#f2d36a', '#d9d2bc', '#857c68'], false, 14);
+        decals?.add(pc.point, pc.face?.normal ?? new THREE.Vector3(0, 0, 1), 'metal', 0.05);
+        sfx.play('metal', placeSound(pc.point.x, pc.point.z));
+      }
       hud?.hit();
       return;
     }
-    // the notice board, if it's nearer than any animal in the way: it bursts, words and all
-    if (board !== null && board < aimDepth && notice.state !== 'broken') {
+    if (board !== null && board < animalT && notice.state !== 'broken') {
       breakNotice();
       hud?.hit();
       return;
     }
-    if (hit) {
-      const tc = texelAt(CRITTER_D) * CRIT_SCALE;
-      const p = hit.mesh.position;
-      const fur = Object.values(CRITTERS[hit.kind].legend);
-      // a puff of smoke and fluff, and it's gone (it comes back later, somewhere else)
-      explode(hit);
-      puffs?.burst(tv.set(p.x, p.y + hit.box * tc * 0.5, p.z), ['#ece6d4', '#d8d2c0', fur[0]], true, 12);
-      hit.dead = 7 + Math.random() * 7;
-      hit.mesh.userData.dead = true;
-      hit.mesh.visible = false;
-      score++;
-      hud?.setScore(score);
-      hud?.hit();
-      tv.set(p.x, p.y + hit.box * tc, p.z).project(camera);
-      // in metres: your eyes are about a person's height above the grass
-      hud?.plusOne((tv.x * 0.5 + 0.5) * size.W, (tv.y * 0.5 + 0.5) * size.H + 10, Math.max(1, Math.round(Math.hypot(p.x - cam.x, p.z - cam.z) * (1.65 / EYE))));
-      return;
+    const gauss = () => (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;
+    const pellets = rifle ? 1 : 9;
+    const killed = new Set<Beast>();
+    let any = false;
+    for (let k = 0; k < pellets; k++) {
+      const dy = gauss() * hunt.spread;
+      const dp = gauss() * hunt.spread;
+      const range = rifle ? 120 : 30;
+      const hits = shotHits(pitch, dy, dp, range);
+      // the rifle's bullet goes on through, up to three; a pellet stops in the first animal it meets
+      const through = rifle ? hits.slice(0, 3) : hits.slice(0, 1);
+      // anything in the way stops it: a trunk
+      const fx = -Math.sin(P.yaw + dy);
+      const fz = -Math.cos(P.yaw + dy);
+      const trunk = firstSolid(cam.x, cam.z, fx, fz, range, cam.y, Math.tan(pitch + dp));
+      const live = through.filter((h) => trunk === null || h.t < trunk);
+      if (!live.length) {
+        if (rifle || k % 3 === 0) impact(pitch, dy, dp, range);
+        continue;
+      }
+      any = true;
+      live.forEach((h) => {
+        if (killed.has(h.b)) return;
+        killed.add(h.b);
+        kill(h, rifle ? live.length - 1 : 0, h.t * (1.65 / EYE));
+      });
     }
-    // a miss chips bark off the trunk in the way, or kicks up the ground (or the water) where it lands
+    if (any) {
+      hud?.hit(true);
+      sfx.play('hit', { gain: 0.7 });
+    } else hunt.streak = 0;
+  }
+
+  /** The knife: a slash, or (heavier, slower, further) a stab, at whatever is just in front of you. */
+  function swing(heavy: boolean) {
+    if (!fauna) return;
+    const kind = heavy ? 'stab' : arms!.swing;
+    // the jab reaches a little further, the finisher sweeps wide round you and can take more than one
+    const reach = heavy ? 1.5 : kind === 'spin' ? 1.55 : kind === 'jab' ? 1.35 : 1.2;
+    const arc = kind === 'spin' ? 0.2 : kind === 'jab' ? 0.85 : 0.72;
     const fx = -Math.sin(P.yaw);
     const fz = -Math.cos(P.yaw);
-    const tanP = Math.tan(pitch);
-    const ground = tanP < -0.01 ? Math.min(60, cam.y / -tanP) : 60;
-    const trunk = firstSolid(cam.x, cam.z, fx, fz, ground);
-    if (trunk !== null) {
-      const y = cam.y + tanP * trunk;
-      if (y > 0 && y < 4) puffs?.burst(tv.set(cam.x + fx * trunk, y, cam.z + fz * trunk), ['#4a4134', '#615645', '#2c2a26', '#7c9c4b'], false, 16);
-    } else if (tanP < -0.01 && ground < 60) {
-      const gx = cam.x + fx * ground;
-      const gz = cam.z + fz * ground;
-      if (waterDist(gx, gz) < 0) {
-        ripple(gx, gz, 1);
-        puffs?.burst(tv.set(gx, 0.03, gz), SPLASH, false, 20);
-      } else puffs?.burst(tv.set(gx, 0.02, gz), ['#3b2f22', '#5a4632', '#436433', '#7b9655'], false, 18);
+    const inReach: [Beast, number][] = [];
+    for (const b of fauna.beasts) {
+      if (b.dead > 0) continue;
+      const dx = b.x - P.x;
+      const dz = b.z - P.z;
+      const d = Math.hypot(dx, dz);
+      // in front of you, within the swing's arc, and about the height of your arm (or lower)
+      if (d > reach || (dx * fx + dz * fz) / (d || 1) < arc || b.y > 1.1 + P.y) continue;
+      inReach.push([b, d]);
+    }
+    inReach.sort((p, q) => p[1] - q[1]);
+    const best = inReach[0]?.[0] ?? null;
+    const bd = inReach[0]?.[1] ?? reach;
+    const extra = heavy ? undefined : { combo: arms!.combo, finisher: kind === 'spin' };
+    if (best && kind === 'spin') for (const [b, d] of inReach.slice(1, 3)) kill({ b, t: d, head: false }, 0, d * (1.65 / EYE), extra);
+    if (!best) {
+      // Mira's things, cut (or the sign knocked swinging)
+      ray.setFromCamera(new THREE.Vector2(0, 0), camera);
+      const cut = shopHits(reach + 0.35)[0];
+      if (cut) {
+        if (cut.sign) swingSign(-Math.cos(P.yaw));
+        else if (cut.b) smash(cut.b);
+        return;
+      }
+      // the blade into a trunk
+      const trunk = firstSolid(P.x, P.z, fx, fz, reach);
+      if (trunk !== null) {
+        sfx.play('wood', { rate: 1.4, gain: 0.6, at: 0.08 });
+        puffs?.burst(tv.set(P.x + fx * trunk, EYE * 0.8, P.z + fz * trunk), ['#4a4134', '#c8a878'], false, 8);
+      }
+      return;
+    }
+    setTimeout(() => sfx.play('stab', { gain: 0.8 }), heavy ? 280 : 120);
+    kill({ b: best, t: bd, head: false }, 0, bd * (1.65 / EYE), extra);
+  }
+
+  /** An animal hears you or sees you: it bolts away from (x, z), and birds take off. */
+  function startle(b: Beast, x: number, z: number) {
+    if (b.flee > 0 || b.fly > 0) return;
+    b.flee = 1.8 + Math.random() * 0.8;
+    b.state = 'move';
+    b.t = b.flee;
+    b.alert = 1;
+    b.want = Math.atan2(b.z - z, b.x - x) + (Math.random() - 0.5) * 0.8;
+    b.head = b.want;
+    if (b.def.flier && b.sp !== 'butterfly') {
+      b.fly = 0.01;
+      sfx.play('flap', placeSound(b.x, b.z));
     }
   }
 
@@ -2223,14 +2889,21 @@ export function createForest(o: Opts) {
       }
     });
     const atPc = loaded !== null && Math.hypot(CLEARING.computer.x - P.x, CLEARING.computer.z - P.z) < 2.4;
-    const next = paused ? null : best >= 0 ? `Insert “${projects[best].title}”` : atPc ? `Eject “${projects[loaded!].title}”` : null;
+    // Mira, at her stall: close and looking her way
+    const mx = MIRA.x - P.x;
+    const mz = MIRA.z - P.z;
+    const md = Math.hypot(mx, mz);
+    const atMira = md < 2.4 && (mx * fx + mz * fz) / Math.max(md, 1e-3) > 0.3;
+    const next = paused ? null : atMira ? 'Talk to Mira · cases & skins' : best >= 0 ? `Insert “${projects[best].title}”` : atPc ? `Eject “${projects[loaded!].title}”` : null;
     if (next !== prompt) {
       prompt = next;
       forest.set({ prompt });
     }
     if (c.use) {
       c.use = false;
-      if (best >= 0) forest.set({ selected: best });
+      if (paused) return;
+      if (atMira) openPanel('shop');
+      else if (best >= 0) forest.set({ selected: best });
       else if (atPc) forest.set({ selected: null });
     }
   }
@@ -2338,93 +3011,97 @@ export function createForest(o: Opts) {
   }
 
   /** Back somewhere out of sight. */
-  function respawn(c: Critter) {
+  function respawn(b: Beast) {
     const cam = camera.position;
     for (let i = 0; i < 60; i++) {
       const x = BOUNDS.x0 + 2 + Math.random() * (BOUNDS.x1 - BOUNDS.x0 - 4);
       const z = BOUNDS.z0 + 2 + Math.random() * (BOUNDS.z1 - BOUNDS.z0 - 4);
       if (waterDist(x, z) < 0.8 || Math.hypot(x - cam.x, z - cam.z) < 14) continue;
-      c.x = x;
-      c.z = z;
-      c.home.set(x, z);
+      b.x = x;
+      b.z = z;
+      b.home = [x, z];
       break;
     }
-    Object.assign(c, { y: 0, fly: 0, flee: 0, dead: 0, state: 'idle', t: 1 + Math.random() });
-    c.mesh.userData.dead = false;
+    Object.assign(b, { y: b.sp === 'butterfly' ? 0.4 : 0, fly: 0, flee: 0, dead: 0, alert: 0, state: 'idle', t: 1 + Math.random() });
   }
 
-  /** The animals in pill mode: they wander, bolt when you come close, and birds take off and fly away. */
-  function updatePlayCritters(dt: number, now: number) {
-    if (!critterAtlas) return;
+  /**
+   * The animals in pill mode: they wander and graze, look up when you come near, bolt when you get close (or
+   * shoot), birds take off and fly away over the trees, butterflies flutter about over the grass and never land.
+   */
+  function updateFauna(dt: number, now: number) {
+    if (!fauna) return;
     const cam = camera.position;
-    const rx = Math.cos(P.yaw);
-    const rz = -Math.sin(P.yaw);
-    for (const c of critters) {
-      const def = CRITTERS[c.kind];
-      if (c.dead > 0) {
-        c.dead -= dt;
-        if (c.dead <= 0) respawn(c);
-        else continue;
+    for (const b of fauna.beasts) {
+      if (b.dead > 0) {
+        b.dead -= dt;
+        if (b.dead <= 0) respawn(b);
+        continue;
       }
-      const dx = c.x - cam.x;
-      const dz = c.z - cam.z;
-      if (dx * dx + dz * dz < (c.kind === 3 ? 14 : 9) && c.flee <= 0 && c.fly === 0) {
-        c.flee = 1.8;
-        c.state = 'move';
-        c.t = 1.8;
-        c.head = Math.atan2(dz, dx) + (Math.random() - 0.5) * 0.9;
-        if (c.kind === 3) c.fly = 0.01;
+      const dx = b.x - cam.x;
+      const dz = b.z - cam.z;
+      const d2 = dx * dx + dz * dz;
+      const shy = b.sp === 'deer' ? 42 : b.def.flier ? 14 : 9;
+      if (d2 < shy * 1.8) b.alert = Math.min(1, b.alert + dt * 2);
+      else b.alert = Math.max(0, b.alert - dt);
+      if (d2 < shy && b.flee <= 0 && b.fly === 0 && b.sp !== 'butterfly') startle(b, cam.x, cam.z);
+      b.flee -= dt;
+      b.t -= dt;
+      if (b.fly > 0) {
+        // flown off: up, away, over the trees, and back later somewhere else
+        b.fly += dt;
+        b.y += dt * (0.8 + b.fly * 0.9);
+        b.x += Math.cos(b.head) * 2.6 * dt;
+        b.z += Math.sin(b.head) * 2.6 * dt;
+        b.phase += dt * 20;
+        if (b.y > 4.5) b.dead = 4 + Math.random() * 5;
+        continue;
       }
-      c.flee -= dt;
-      c.t -= dt;
-      if (c.fly > 0) {
-        c.fly += dt;
-        c.y += dt * (0.8 + c.fly * 0.9);
-        c.x += Math.cos(c.head) * 2.4 * dt;
-        c.z += Math.sin(c.head) * 2.4 * dt;
-        c.phase += dt * 20;
-        // flown off over the trees: back later, elsewhere
-        if (c.y > 4.5) {
-          c.dead = 4 + Math.random() * 5;
-          c.mesh.userData.dead = true;
-          continue;
-        }
-      } else {
-        if (c.t <= 0) {
-          if (c.state === 'idle') {
-            c.state = 'move';
-            c.t = 0.6 + Math.random() * 1.6;
-            const hx = c.home.x - c.x;
-            const hz = c.home.y - c.z;
-            c.head = hx * hx + hz * hz > 16 ? Math.atan2(hz, hx) : Math.random() * Math.PI * 2;
-          } else {
-            c.state = 'idle';
-            c.t = 0.8 + Math.random() * 2.6;
-          }
-        }
-        if (c.state === 'move') {
-          const sp = def.speed * 0.4 * (c.flee > 0 ? 2.6 : 1);
-          const nx = c.x + Math.cos(c.head) * sp * dt;
-          const nz = c.z + Math.sin(c.head) * sp * dt;
-          if (waterDist(nx, nz) < 0.3 || !inBounds(nx, nz, 0.5)) c.head += Math.PI * (0.6 + Math.random() * 0.5);
-          else {
-            c.x = nx;
-            c.z = nz;
-          }
-          c.phase += dt * (def.hop ? 9 : 12) * (c.flee > 0 ? 1.6 : 1);
+      if (b.sp === 'butterfly') {
+        // a butterfly's wandering flight: a lazy curve, a bob, now and then a dart
+        b.want += (Math.sin(now * 0.7 + b.phase) * 1.4 + (Math.random() - 0.5) * 2) * dt;
+        b.head += (b.want - b.head) * Math.min(1, dt * 3);
+        const sp = d2 < 4 ? 1.6 : 0.6;
+        const nx = b.x + Math.cos(b.head) * sp * dt;
+        const nz = b.z + Math.sin(b.head) * sp * dt;
+        if (inBounds(nx, nz, 0.5)) {
+          b.x = nx;
+          b.z = nz;
+        } else b.want += Math.PI;
+        b.y = 0.35 + Math.sin(now * 2.3 + b.phase) * 0.15 + Math.sin(now * 5.1 + b.phase * 2) * 0.05;
+        b.state = 'move';
+        continue;
+      }
+      if (b.t <= 0) {
+        if (b.state === 'idle') {
+          b.state = 'move';
+          b.t = 0.6 + Math.random() * 1.8;
+          const hx = b.home[0] - b.x;
+          const hz = b.home[1] - b.z;
+          b.want = hx * hx + hz * hz > 20 ? Math.atan2(hz, hx) : b.head + (Math.random() - 0.5) * 2.6;
+        } else {
+          b.state = 'idle';
+          b.t = 0.8 + Math.random() * 3;
         }
       }
-      const moving = c.state === 'move' || c.fly > 0;
-      const frames = moving ? def.move : def.idle;
-      const fi = moving ? frames[Math.floor(c.phase) % frames.length] : frames[Math.floor((now + c.phase) * 1.5) % frames.length];
-      c.rect = critterAtlas.index[c.kind][fi];
-      const r = critterAtlas.rects[c.rect];
-      // sprites face right: flip when it heads left across your view
-      c.flip = Math.cos(c.head) * rx + Math.sin(c.head) * rz < 0;
-      setFrame(c.mesh, r, critterAtlas.w, critterAtlas.h, c.flip, c.box);
-      const hop = moving && def.hop && c.fly === 0 ? Math.abs(Math.sin(c.phase * Math.PI * 0.5)) * def.hop : 0;
-      c.mesh.position.set(c.x, c.y + hop, c.z);
+      // turning towards where it wants to go, not snapping round
+      let dh = b.want - b.head;
+      dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+      b.head += dh * Math.min(1, dt * (b.flee > 0 ? 10 : 4));
+      if (b.state === 'move') {
+        const sp = b.def.speed * 0.45 * (b.flee > 0 ? 2.8 : 1);
+        const nx = b.x + Math.cos(b.head) * sp * dt;
+        const nz = b.z + Math.sin(b.head) * sp * dt;
+        const blocked = (waterDist(nx, nz) < 0.3 && !frozen(nx, nz)) || !inBounds(nx, nz, 0.5) || nearSolids(nx, nz).some((s) => Math.hypot(s.x - nx, s.z - nz) < s.r + 0.08) || COTTAGE_BOXES.some((c) => !c.off && nx > c.x0 - 0.1 && nx < c.x1 + 0.1 && nz > c.z0 - 0.1 && nz < c.z1 + 0.1);
+        if (blocked) b.want = b.head + Math.PI * (0.6 + Math.random() * 0.5);
+        else {
+          b.x = nx;
+          b.z = nz;
+        }
+        b.phase += dt * (b.def.hop ? 9 : 12) * (b.flee > 0 ? 1.7 : 1);
+      } else b.phase += dt * 1.2;
     }
+    fauna.sync(now);
   }
 
   function updatePlayWorld(dt: number, now: number) {
@@ -2434,19 +3111,44 @@ export function createForest(o: Opts) {
       wu.res.value.set(size.W, size.H);
     }
     puffs?.update(dt);
+    voxels?.update(dt);
+    decals?.update(dt);
     updateGibs(dt);
+    updateMira(dt, now);
+    updateShop(dt);
+  }
+
+  /** Mira at her stall, and the line she says over it as you come near. */
+  function updateMira(dt: number, now: number) {
+    if (!seller) return;
+    const panel = forest.get().panel;
+    seller.talking = panel === 'shop';
+    seller.update(dt, now, P.x, P.z, EYE + P.y);
+    const dx = MIRA.x - P.x;
+    const dz = MIRA.z - P.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 4.5 && !miraNear) {
+      miraNear = true;
+      seller.wave();
+      sfx.play('hello', placeSound(MIRA.x, MIRA.z));
+    } else if (d > 6.5) miraNear = false;
+    const fx = -Math.sin(P.yaw);
+    const fz = -Math.cos(P.yaw);
+    const ahead = (dx * fx + dz * fz) / Math.max(d, 1e-3);
+    pinPoint($('mira-say'), MIRA.x, 0.9, MIRA.z, d < 7.5 && d > 0.6 && ahead > 0.35 && !paused && panel === null);
   }
 
   /**
-   * After the fog: the rifle (its own pass, laid over the view), then the scope's glass if it's up, then the
+   * After the fog: the weapon (its own pass, laid over the view), then the scope's glass if it's up, then the
    * flat HUD. The blit shows whichever frame ends up with all of it.
    */
   function drawHud(dt: number) {
-    if (!hud || !controls || !gun || !scope || !lens) return;
-    const scoped = aimT > 0.75;
+    if (!hud || !controls || !arms || !scope || !lens) return;
+    const a = arms;
+    const scoped = a.current === 'rifle' && aimT > 0.75;
     const shade = Math.min(1.05, 0.42 + air.ambient * 0.62);
-    gun.update(dt, { W: size.W, H: size.H, walk: P.walk, shade, aim: aimT, turn: lastTurn, visible: !paused && !scoped });
-    if (!paused && !scoped) gun.render(renderer, fogged);
+    a.update(dt, { W: size.W, H: size.H, walk: P.walk, shade, aim: aimT, turn: lastTurn, visible: !paused && !scoped, air: P.y > 0 ? Math.min(1, P.vy * 0.4) : 0, fine: size.H / size.fovH });
+    if (!paused && !scoped) a.render(renderer, fogged);
     let out = fogged;
     if (scoped) {
       if (lens.width !== size.W || lens.height !== size.H) lens.setSize(size.W, size.H);
@@ -2458,8 +3160,7 @@ export function createForest(o: Opts) {
       su.frame.value = fogged.texture;
       su.lowRes.value.set(size.W, size.H);
       su.open.value = smooth(0.75, 1, aimT);
-      su.shift.value.set(Math.round(scopeSway.x), Math.round(scopeSway.y - gun.kick * 16));
-      // where the sun is, seen from here, for the glare on the glass
+      su.shift.value.set(Math.round(scopeSway.x), Math.round(scopeSway.y - a.kick * 16));
       tv.set(-SUN[0], -SUN[1], -SUN[2]).applyQuaternion(camera.quaternion.clone().invert());
       su.sun.value.set(tv.x, tv.y, 0.25 + Math.max(0, -tv.z) * 0.75);
       su.shade.value = shade;
@@ -2467,21 +3168,81 @@ export function createForest(o: Opts) {
       renderer.render(scope.scene, postCam);
       out = lens;
     } else scopeSway.set(0, 0);
+    // the HUD is drawn in the wood's own chunky pixels whatever the frame's are: with finer pixels it gets its own
+    // frame at the chunky size, laid over the finished picture at a whole-number scale (so it never shrinks)
+    const hs = Math.max(1, Math.round(Math.min(size.devW, size.devH) / SHORT_SIDE));
+    const own = hs !== size.scale;
+    hudFrame.W = own ? Math.ceil(size.devW / hs) : size.W;
+    hudFrame.H = own ? Math.ceil(size.devH / hs) : size.H;
+    const k = hudFrame.W / size.W;
+    const hOffX = (hudFrame.W * hs - size.devW) / 2;
+    const hOffY = (hudFrame.H * hs - size.devH) / 2;
     const st = controls.stick;
-    const toG = (x: number, y: number): [number, number] => [(x * size.devW) / size.cssW / size.scale + size.offX / size.scale, size.H - ((y * size.devH) / size.cssH + size.offY) / size.scale];
+    const toG = (x: number, y: number): [number, number] => [(x * size.devW) / size.cssW / hs + hOffX / hs, hudFrame.H - ((y * size.devH) / size.cssH + hOffY) / hs];
     let stick = null;
     if (st.id >= 0) {
       const [x0, y0] = toG(st.x0, st.y0);
       const [x, y] = toG(st.x, st.y);
       stick = { on: true, x0, y0, x, y };
     }
-    hud.update(dt, { W: size.W, H: size.H, hot: !paused && !!aim(P.pitch + P.kick), show: !paused, aim: aimT, muzzle: gun.muzzle(size.W, size.H), stick });
-    renderer.setRenderTarget(out);
-    renderer.autoClear = false;
-    renderer.render(hud.scene, hud.cam);
-    renderer.autoClear = true;
+    // the crosshair's gap: the spread in (the HUD's) screen pixels
+    const pxPerRad = (size.H / 2 / Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) * k;
+    const hv = Math.hypot(P.vx, P.vz);
+    const S = settings.get();
+    hud.setScore(wallet.get().points, hunt.kills);
+    // the weapons always wear what's equipped (checked every frame: nothing can leave an old skin on)
+    applySkins();
+    // what the page's hotbar and hints need to know, told only when it changes
+    const fs0 = forest.get();
+    const aiming = aimT > 0.75;
+    if (fs0.weapon !== a.current || fs0.ammo.rifle !== a.ammo.rifle || fs0.ammo.shotgun !== a.ammo.shotgun || fs0.aiming !== aiming) forest.set({ weapon: a.current, ammo: { ...a.ammo }, aiming });
+    const [mx, my] = a.muzzle(size.W, size.H);
+    hud.update(dt, {
+      W: hudFrame.W,
+      H: hudFrame.H,
+      hot: !paused && shotHits(P.pitch + P.kick, 0, 0, a.current === 'knife' ? 1.5 : 80).length > 0,
+      show: !paused,
+      aim: aimT,
+      muzzle: [mx * k, my * k],
+      stick,
+      weapon: a.current,
+      gap: a.current === 'knife' ? 0 : hunt.spread * pxPerRad * (a.current === 'shotgun' ? 1 : 0.7),
+      ammo: a.current === 'knife' ? null : [a.ammo[a.current], a.max[a.current]],
+      reloading: a.action === 'reload',
+      breath: scoped ? { left: hunt.breath, tired: hunt.tired > 0, holding: hunt.holding } : null,
+      speed: hv > RUN.knife * 1.1 ? (hv / RUN.knife) * 250 : null,
+      hints: S.hints,
+      cross: hex(CROSS_COLORS[S.crosshair]),
+      speedo: S.speedo,
+    });
+    hudFrame.own = own;
+    if (!own) {
+      renderer.setRenderTarget(out);
+      renderer.autoClear = false;
+      renderer.render(hud.scene, hud.cam);
+      renderer.autoClear = true;
+    } else {
+      if (hudTarget.width !== hudFrame.W || hudTarget.height !== hudFrame.H) hudTarget.setSize(hudFrame.W, hudFrame.H);
+      const color = renderer.getClearColor(new THREE.Color());
+      const alpha = renderer.getClearAlpha();
+      renderer.setRenderTarget(hudTarget);
+      renderer.setClearColor(0x000000, 0);
+      renderer.clear();
+      renderer.render(hud.scene, hud.cam);
+      renderer.setClearColor(color, alpha);
+      const hu = hudOverlay.material.uniforms;
+      hu.lowRes.value.set(hudFrame.W, hudFrame.H);
+      hu.scale.value = hs;
+      hu.offset.value.set(Math.floor(hOffX), Math.floor(hOffY));
+    }
     blit.material.uniforms.frame.value = out.texture;
   }
+  /** The HUD's own frame (in the wood's chunky pixels), when the picture's pixels are finer. */
+  const hudFrame = { W: 1, H: 1, own: false };
+  const hudTarget = new THREE.WebGLRenderTarget(4, 4, { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false, depthBuffer: false });
+  const hudOverlay = overlayMesh(hudTarget.texture);
+  const hudScene = new THREE.Scene();
+  hudScene.add(hudOverlay);
 
   // --- the loop -----------------------------------------------------------------------------------------
   let ready = false;
@@ -2493,7 +3254,8 @@ export function createForest(o: Opts) {
   const base = new THREE.Vector3();
 
   function cameraAt(s: number) {
-    if (s <= stages.a) base.copy(walk.getPointAt(easeInOut(clamp01(s / stages.a))));
+    // above the clearing the camera already stands at the computer, still: the page burns away to show it
+    if (s <= stages.a) base.set(size.restX, CLEARING.camY, CLEARING.camZ);
     else if (s <= stages.b) base.set(size.restX, CLEARING.camY, CLEARING.camZ);
     // out of the clearing it sets off at once, and slows only as it reaches the cat
     else base.copy(leave.getPointAt(easeAway(clamp01((s - stages.b) / (stages.c - stages.b)))));
@@ -2540,6 +3302,7 @@ export function createForest(o: Opts) {
     return sprung.copy(target).add(off);
   }
   let lastScroll = NaN;
+  let wasInWood = false;
 
   // the shadow camera follows you, snapped to its own texels so shadows don't crawl
   const lf = new THREE.Vector3();
@@ -2548,6 +3311,8 @@ export function createForest(o: Opts) {
   const focus = new THREE.Vector3();
   const bias = new THREE.Matrix4().set(0.5, 0, 0, 0.5, 0, 0.5, 0, 0.5, 0, 0, 0.5, 0.5, 0, 0, 0, 1);
   const lastFocus = new THREE.Vector3(Infinity, 0, 0);
+  const farFocus = new THREE.Vector3();
+  const lastFar = new THREE.Vector3(Infinity, 0, 0);
   let shadowFrame = 0;
   function shadowPass() {
     lf.set(...SUN);
@@ -2561,12 +3326,22 @@ export function createForest(o: Opts) {
     const fy = focus.dot(lu);
     focus.addScaledVector(lr, Math.round(fx / texel) * texel - fx).addScaledVector(lu, Math.round(fy / texel) * texel - fy);
     shadowFrame++;
-    if (focus.equals(lastFocus) && shadowFrame % 8 !== 0) return;
-    lastFocus.copy(focus);
-    sunCam.up.copy(lu);
-    sunCam.position.copy(focus).addScaledVector(lf, -70);
-    sunCam.lookAt(focus);
-    sunCam.updateMatrixWorld();
+    const nearDue = !(focus.equals(lastFocus) && shadowFrame % 8 !== 0);
+    // pill mode's coarse map over the whole wood: redrawn once you've gone a good way, and now and then
+    light.farOn.value = playing ? 1 : 0;
+    let farDue = false;
+    if (playing) {
+      farFocus.set(Math.round(camera.position.x / 12) * 12, 1.5, Math.round(camera.position.z / 12) * 12);
+      farDue = !farFocus.equals(lastFar) || shadowFrame % 240 === 0;
+    }
+    if (!nearDue && !farDue) return;
+    if (nearDue) {
+      lastFocus.copy(focus);
+      sunCam.up.copy(lu);
+      sunCam.position.copy(focus).addScaledVector(lf, -70);
+      sunCam.lookAt(focus);
+      sunCam.updateMatrixWorld();
+    }
     const hidden: LayerMesh[] = [];
     for (const m of layers) {
       if (m.userData.caster) m.material = m.userData.depth;
@@ -2576,6 +3351,7 @@ export function createForest(o: Opts) {
       }
     }
     sky.visible = false;
+    weather.group.visible = false;
     if (floor) floor.visible = false;
     if (dust) dust.visible = false;
     led.visible = false;
@@ -2590,8 +3366,31 @@ export function createForest(o: Opts) {
     // the notice board is drawn in the sharp pass, but its shadow still falls in the forest
     const board = notice.mesh && notice.on && notice.state !== 'broken' && !playing;
     if (board) notice.mesh!.visible = true;
-    renderer.setRenderTarget(shadow);
-    renderer.render(scene, sunCam);
+    fauna?.useDepth(true);
+    const effects = [voxels?.mesh, decals?.mesh].filter(Boolean) as THREE.Object3D[];
+    const effectsOn = effects.map((m) => m.visible);
+    for (const m of effects) m.visible = false;
+    if (nearDue) {
+      renderer.setRenderTarget(shadow);
+      renderer.render(scene, sunCam);
+      light.shadowMatrix.value.copy(bias).multiply(sunCam.projectionMatrix).multiply(sunCam.matrixWorldInverse);
+    }
+    if (farDue) {
+      lastFar.copy(farFocus);
+      // the animals move about: leave them out of the coarse map (it's only for what's far off)
+      const animals = fauna?.group.visible ?? false;
+      if (fauna) fauna.group.visible = false;
+      sunFar.up.copy(lu);
+      sunFar.position.copy(farFocus).addScaledVector(lf, -100);
+      sunFar.lookAt(farFocus);
+      sunFar.updateMatrixWorld();
+      renderer.setRenderTarget(farShadow);
+      renderer.render(scene, sunFar);
+      if (fauna) fauna.group.visible = animals;
+      light.shadowFarMatrix.value.copy(bias).multiply(sunFar.projectionMatrix).multiply(sunFar.matrixWorldInverse);
+    }
+    fauna?.useDepth(false);
+    effects.forEach((m, i) => (m.visible = effectsOn[i]));
     if (notice.mesh) notice.mesh.visible = false;
     for (const m of layers) m.material = m.userData.lit;
     for (const m of hidden) m.visible = true;
@@ -2600,13 +3399,13 @@ export function createForest(o: Opts) {
       sh.spray.points.visible = true;
     }
     sky.visible = true;
+    weather.group.visible = true;
     if (floor) floor.visible = true;
     if (dust) dust.visible = true;
     led.visible = true;
     if (water) water.visible = playing;
     if (puffs) puffs.points.visible = puffsOn;
     for (const g of gibs) g.sh.mesh.visible = g.sh.spray.points.visible = true;
-    light.shadowMatrix.value.copy(bias).multiply(sunCam.projectionMatrix).multiply(sunCam.matrixWorldInverse);
   }
 
   /** Renders the wood from under the floor (and fogs it), for the puddles to show. Skipped in the meadow. */
@@ -2637,9 +3436,11 @@ export function createForest(o: Opts) {
       for (const h of playHide) h.visible = false;
     }
     floor.visible = false;
+    weather.group.visible = false;
     if (flora) flora.visible = false;
     renderer.setRenderTarget(mirrored);
     renderer.render(scene, mirrorCam);
+    weather.group.visible = true;
     floor.visible = true;
     if (flora) flora.visible = true;
     if (playing) {
@@ -2671,6 +3472,7 @@ export function createForest(o: Opts) {
     const s = o.scroll();
     updateTrans(dt);
     let atClearing = false;
+    let discsOn = false;
     let at: THREE.Vector3;
     if (playing) at = updatePlayer(dt);
     else {
@@ -2683,8 +3485,12 @@ export function createForest(o: Opts) {
         lastScroll = stages.a;
         target = cameraAt(stages.a);
       }
-      atClearing = Math.abs(target.z - CLEARING.camZ) < 0.6;
+      // at the computer, and scrolled down to it: above the clearing the camera already stands there too (the page
+      // over it burns away to show it), but the discs, the links and the video wait until you've arrived
       at = follow(target, dt, !(Math.abs(s - from) < window.innerHeight * 1.5));
+      atClearing = Math.abs(target.z - CLEARING.camZ) < 0.6 && s >= stages.a - window.innerHeight * 0.04;
+      // the discs stay yours to pick while you can still see them: a little either side of the clearing too
+      discsOn = s >= stages.a - window.innerHeight * 0.2 && (Math.abs(target.z - CLEARING.camZ) < 0.6 || Math.abs(at.z - CLEARING.camZ) < 1.6);
       // the board bursting gives the view a short, dying jolt
       if (notice.shake > 0) {
         const k = (notice.shake / 0.4) ** 2 * 0.035;
@@ -2703,8 +3509,13 @@ export function createForest(o: Opts) {
     }
 
     airAt(at.z);
+    if (playing) {
+      air.ambient = still.ambient;
+      air.sun = still.sun;
+    }
     light.ambient.value.setScalar(air.ambient);
-    light.sunColor.value.set(1, 0.94, 0.76).multiplyScalar(air.sun);
+    light.sunColor.value.set(SUN_TINT[season][0], SUN_TINT[season][1], SUN_TINT[season][2]).multiplyScalar(air.sun);
+    weather.update(now, camera.position, playing);
     const on = loaded !== null && discs[loaded]?.t === 1;
     light.lampPos.value.set(slot.x - 0.1, 0.45, CLEARING.computer.z + 0.25, on ? 0.55 : 0.14);
     light.lampColor.value.set(0.55, 0.78, 0.62);
@@ -2714,6 +3525,8 @@ export function createForest(o: Opts) {
     fu.density.value = air.density;
     fu.falloff.value = air.falloff;
     fu.shafts.value = air.shafts;
+    fu.zoned.value = playing ? 1 : 0;
+    fogMirror.material.uniforms.zoned.value = fu.zoned.value;
     fu.camPos.value.copy(camera.position);
     fu.projInv.value.copy(camera.projectionMatrixInverse);
     fu.viewInv.value.copy(camera.matrixWorld);
@@ -2741,7 +3554,7 @@ export function createForest(o: Opts) {
     updateDrive(now);
     updateScreen(now);
     if (playing) {
-      updatePlayCritters(dt, now);
+      updateFauna(dt, now);
       updatePlayWorld(dt, now);
       updateNotice(dt);
       updateProps();
@@ -2756,7 +3569,19 @@ export function createForest(o: Opts) {
       const cycle = now % 4.2;
       cat.mesh.material.uniforms.map.value = cycle > 4.02 || (cycle > 3.78 && cycle < 3.9) ? cat.shut : cat.open;
     }
-    if (!playing) placePins(atClearing, at.z < -40 && at.z > -78);
+    if (!playing) placePins(atClearing, at.z < -40 && at.z > -78, discsOn);
+
+    // the page covers the wood until you get to it: draw nothing until then (it's the phone's battery);
+    // "in the wood" (for the loading screen and the sound) once the white has started to fall away
+    const drawing = playing || !!trans || s > stages.start - window.innerHeight * 0.25;
+    const inWood = playing || s > stages.start + (stages.walk - stages.start) * 0.45;
+    if (inWood !== wasInWood) {
+      wasInWood = inWood;
+      if (inWood) document.documentElement.dataset.inWood = '';
+      else delete document.documentElement.dataset.inWood;
+      sfx.bed('wood', inWood && ready, 0.8, season);
+    }
+    if (!drawing) return;
 
     shadowPass();
     mirrorPass(now);
@@ -2768,6 +3593,12 @@ export function createForest(o: Opts) {
     if (!playing) blit.material.uniforms.frame.value = fogged.texture;
     renderer.setRenderTarget(null);
     renderer.render(blitScene, postCam);
+    // the HUD, in its own chunky pixels, over the finer picture
+    if (playing && hudFrame.own) {
+      renderer.autoClear = false;
+      renderer.render(hudScene, postCam);
+      renderer.autoClear = true;
+    }
     if (playing) return;
     // the words, sharp, over the pixels, through the same camera and the same crop
     updateBoards();
@@ -2791,7 +3622,7 @@ export function createForest(o: Opts) {
   function tryReady() {
     // the meadow's two painters are enough: the clearing and the hollow finish behind the first view
     const hero = doneGroups.has(0) && doneGroups.has(1);
-    if (!ready && hero && planted && (text || textGaveUp) && (boards.socials || notice.mesh || textGaveUp)) markReady();
+    if (!ready && hero && planted && (hung || textGaveUp)) markReady();
   }
 
   /** Compiles every shader and allocates every render target up front, so scrolling never waits on the GPU. */
@@ -2855,7 +3686,6 @@ export function createForest(o: Opts) {
 
   const fontWait = setTimeout(() => {
     textGaveUp = true;
-    if (!text) buildText();
     tryReady();
   }, 900);
   // a disposed forest must never touch the GL context again: the next one shares it (strict mode builds the
@@ -2864,8 +3694,8 @@ export function createForest(o: Opts) {
   (document.fonts?.ready ?? Promise.resolve()).then(() => {
     if (disposed) return;
     clearTimeout(fontWait);
-    buildText();
     hangAll();
+    hung = true;
     fontsIn = true;
     if (doneGroups.size) warmUp();
     tryReady();
@@ -2886,12 +3716,15 @@ export function createForest(o: Opts) {
   window.visualViewport?.addEventListener('resize', onLayout);
   resize();
   tick();
-  if (process.env.NODE_ENV !== 'production') Object.assign(window, { __forest: { camera, stages, size, scene, layers, fog: fog.material.uniforms, light, atmos, renderer, main, fogged, P, store: forest, notice, critters, play: () => ({ playing, score, controls, aim: () => aim(P.pitch + P.kick), solids }) } });
+  if (process.env.NODE_ENV !== 'production') Object.assign(window, { __forest: { camera, stages, size, scene, layers, fog: fog.material.uniforms, light, atmos, renderer, main, fogged, P, store: forest, notice, critters, play: () => ({ playing, hunt, controls, arms, fauna, solids }) } });
 
   return {
     measure,
     dispose() {
       disposed = true;
+      unwatch.forEach((f) => f());
+      sfx.bed('wood', false);
+      delete document.documentElement.dataset.inWood;
       cancelAnimationFrame(raf);
       controls?.detach();
       clearTimeout(fontWait);
@@ -2917,6 +3750,8 @@ export function createForest(o: Opts) {
       mirrored.dispose();
       mirroredFog.dispose();
       shadow.dispose();
+      farShadow.dispose();
+      hudTarget.dispose();
       renderer.dispose();
     },
   };

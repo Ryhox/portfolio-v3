@@ -4,9 +4,10 @@
  * pixel frame itself, so it is made of exactly the same pixels as the wood.
  */
 import * as THREE from 'three';
-import { crosshairSprite, CREAM, flashSprite, hitSprite, pixelText, tallyIcon } from './art/gear';
+import { CREAM, dynamicCross, flashSprite, hitSprite, keyHint, pixelText, tallyIcon } from './art/gear';
 import { BAYER, LIGHT, light, toTexture } from './gl';
 import { hex, Pix } from './pix';
+import { CROSS_COLORS, settings } from './settings';
 import { LAKE, PADS, POND, RIVER, RIVER_W } from './world';
 
 // --- controls -------------------------------------------------------------------------------------------
@@ -16,7 +17,16 @@ export class Controls {
   dx = 0;
   dy = 0;
   fire = false;
+  /** the left button held (the knife keeps slashing), the right button pressed (the knife's stab) */
+  fireHeld = false;
+  alt = false;
+  /** a weapon asked for: 1, 2, 3, 'q' (the last one), or ±1 from the wheel */
+  swap: number | 'q' | 'next' | 'prev' | null = null;
+  inspect = false;
+  reload = false;
   jump = false;
+  /** when Space last went down (seconds), for a jump pressed just before landing */
+  jumpAt = -9;
   /** Held: looking through the scope. Pressed: use what is in front of you (put a disc in). */
   zoom = false;
   use = false;
@@ -38,14 +48,28 @@ export class Controls {
       window.addEventListener(t, f, o);
       this.off.push(() => window.removeEventListener(t, f, o));
     };
-    const game = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyE'];
+    const game = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'ShiftLeft', 'ShiftRight', 'KeyE', 'KeyQ', 'KeyF', 'KeyR', 'Digit1', 'Digit2', 'Digit3', 'Digit4'];
     on('keydown', (e) => {
       if (!game.includes(e.code)) return;
+      // a page open over the wood (the shop, the cases) keeps its keys
+      if (!this.locked && !this.touch && e.code !== 'Digit4') return;
       e.preventDefault();
       this.keys.add(e.code);
-      if (e.code === 'Space') this.jump = true;
-      if (e.code === 'KeyE' && !e.repeat) this.use = true;
+      if (e.code === 'Space' && !e.repeat) {
+        this.jump = true;
+        this.jumpAt = performance.now() / 1000;
+      }
+      if (e.repeat) return;
+      if (e.code === 'KeyE') this.use = true;
+      if (e.code === 'KeyF') this.inspect = true;
+      if (e.code === 'KeyR') this.reload = true;
+      if (e.code === 'KeyQ') this.swap = 'q';
+      if (e.code.startsWith('Digit')) this.swap = Number(e.code.slice(5));
     });
+    on('wheel', (e) => {
+      if (!this.locked) return;
+      this.swap = e.deltaY > 0 ? 'next' : 'prev';
+    }, { passive: true });
     on('keyup', (e) => this.keys.delete(e.code));
     on('blur', () => this.keys.clear());
     on('mousemove', (e) => {
@@ -55,23 +79,39 @@ export class Controls {
     });
     on('mousedown', (e) => {
       if (this.touch) return;
-      if (e.button === 2 && this.locked) this.zoom = true;
+      if (e.button === 2 && this.locked) {
+        // held, or (a setting) pressed once to raise and again to lower
+        this.zoom = settings.get().toggleAim ? !this.zoom : true;
+        this.alt = true;
+      }
       if (e.button !== 0) return;
-      if (this.locked) this.fire = true;
-      else if (e.target === this.canvas) this.lock();
+      if (this.locked) {
+        this.fire = true;
+        this.fireHeld = true;
+      } else if (e.target === this.canvas) this.lock();
     });
     on('mouseup', (e) => {
-      if (e.button === 2) this.zoom = false;
+      if (e.button === 2 && !settings.get().toggleAim) this.zoom = false;
+      if (e.button === 0) this.fireHeld = false;
     });
     on('contextmenu', (e) => e.preventDefault());
     // the touch screen's buttons
     on('play-zoom' as keyof WindowEventMap, () => (this.zoom = !this.zoom));
+    on('play-swap' as keyof WindowEventMap, () => (this.swap = 'next'));
+    on('play-reload' as keyof WindowEventMap, () => (this.reload = true));
+    on('play-jump' as keyof WindowEventMap, () => {
+      this.jump = true;
+      this.jumpAt = performance.now() / 1000;
+    });
     on('play-use' as keyof WindowEventMap, () => (this.use = true));
+    // a slot of the hotbar tapped
+    on('play-slot' as keyof WindowEventMap, (e) => (this.swap = Number((e as unknown as CustomEvent<number>).detail)));
     const lockChange = () => {
       this.locked = document.pointerLockElement === this.canvas;
       if (!this.locked) {
         this.keys.clear();
         this.zoom = false;
+        this.fireHeld = false;
       }
       this.onLock(this.locked);
     };
@@ -145,6 +185,11 @@ export class Controls {
 
   get running() {
     return this.keys.has('ShiftLeft') || this.keys.has('ShiftRight') || (this.stick.id >= 0 && Math.hypot(this.stick.x - this.stick.x0, this.stick.y - this.stick.y0) > 40);
+  }
+
+  /** Space held down (it hops again as you land) */
+  get hopping() {
+    return this.keys.has('Space');
   }
 }
 
@@ -407,7 +452,9 @@ export function scopePass() {
         vec2 p = floor(gl_FragCoord.xy) + 0.5;
         float full = min(lowRes.x, lowRes.y) * 0.6;
         float R = full * mix(0.3, 1.0, open);
-        vec2 c = lowRes * 0.5 + shift;
+        // the middle of the reticle on a pixel's middle: on a screen an even number of pixels wide its upright
+        // line fell between two columns and vanished
+        vec2 c = floor(lowRes * 0.5 + shift) + 0.5;
         vec2 q = (p - c) / R;
         float d = length(q);
         float dith = bayer(p);
@@ -420,7 +467,7 @@ export function scopePass() {
         }
         vec2 dir = d > 0.0 ? q / d : vec2(0.0);
         // the lens: magnified a touch in the middle, bending towards the rim, colours parting at the edge
-        vec2 at = lowRes * 0.5 + q * full * (0.86 + 0.14 * d * d);
+        vec2 at = c - shift + q * full * (0.86 + 0.14 * d * d);
         float fringe = smoothstep(0.7, 1.0, d) * 1.5;
         vec3 col;
         col.r = texture2D(frame, (at + dir * fringe) / lowRes).r;
@@ -521,34 +568,82 @@ function ring(r: number, thick: number, color: number): Pix {
 }
 
 /**
- * What's drawn flat over the view, in game pixels: the muzzle flash and its smoke (at the 3D rifle's muzzle),
- * the crosshair (warm when an animal is in it), the hit marker, the arcade counter at the top, "+1"s rising
- * from what you hit, and on touch screens the walking stick under your thumb.
+ * What's drawn flat over the view, in game pixels: the muzzle flash and its smoke (at the weapon's muzzle), the
+ * crosshair (opening up as you run, jump and fire; warm when an animal is in it), the hit marker, the score at
+ * the top, the medals you earn stacking up on the right with their multipliers, the points rising from what you
+ * got, the ammo, the breath you're holding behind the scope, how fast you're going when you bunny hop, and on
+ * touch screens the walking stick under your thumb.
  */
+const TONES: Record<string, [string, string]> = {
+  gold: ['#f2c24a', '#fff1b8'],
+  leaf: ['#a6cd83', '#e2f4c8'],
+  rose: ['#f08a7a', '#ffd8cc'],
+  sky: ['#8ac4e8', '#dff2ff'],
+  cream: ['#f1ebd6', '#fffbea'],
+};
+type Feed = { s: Sprite; age: number; slot: number };
+export type HudState = {
+  W: number;
+  H: number;
+  hot: boolean;
+  show: boolean;
+  aim: number;
+  muzzle: [number, number];
+  stick: { on: boolean; x0: number; y0: number; x: number; y: number } | null;
+  weapon: 'rifle' | 'shotgun' | 'knife';
+  gap: number;
+  ammo: [number, number] | null;
+  reloading: boolean;
+  breath: { left: number; tired: boolean; holding: boolean } | null;
+  speed: number | null;
+  /** the settings: key hints shown, the crosshair's colour, the bunny-hop speed shown */
+  hints: boolean;
+  cross: number;
+  speedo: boolean;
+};
+
 export class Hud {
   readonly scene = new THREE.Scene();
   readonly cam = new THREE.OrthographicCamera(0, 1, 1, 0, -1, 1);
   private flash: Sprite[];
   private cross: Sprite;
-  private crossHot: Sprite;
+  private crossKey = '';
   private marker: Sprite;
   private tally: Sprite;
+  private ammo: Sprite;
+  private ammoKey = '';
+  private speed: Sprite;
+  private speedKey = '';
+  private breath: Sprite;
+  private breathKey = '';
+  private breathHint: Sprite;
+  private breathHintKey = '';
+  private ammoHint: Sprite;
+  private ammoHintKey = '';
   private plus: { s: Sprite; d: Sprite; age: number; x: number; y: number }[] = [];
+  private feed: Feed[] = [];
+  private feedPool: Sprite[] = [];
   private stickRing: Sprite;
   private stickKnob: Sprite;
   private smoke: THREE.Points<THREE.BufferGeometry, THREE.PointsMaterial>;
   private smokeP: { x: number; y: number; vx: number; vy: number; age: number }[] = [];
   private score = -1;
+  private kills = 0;
   private pop = 0;
   private hitT = 9;
+  private killT = 9;
   flashT = 9;
 
   constructor() {
     this.flash = [sprite(flashSprite(true), 3), sprite(flashSprite(false), 3)];
-    this.cross = sprite(crosshairSprite(CREAM), 4);
-    this.crossHot = sprite(crosshairSprite(hex('#e5704f')), 4);
+    this.cross = sprite(new Pix(1, 1), 4);
     this.marker = sprite(hitSprite(), 7);
     this.tally = sprite(new Pix(1, 1), 8);
+    this.ammo = sprite(new Pix(1, 1), 8);
+    this.speed = sprite(new Pix(1, 1), 8);
+    this.breath = sprite(new Pix(1, 1), 8);
+    this.breathHint = sprite(new Pix(1, 1), 8);
+    this.ammoHint = sprite(new Pix(1, 1), 8);
     this.stickRing = sprite(ring(15, 2, hex('#f1ebd6')), 1);
     this.stickKnob = sprite(ring(5, 5, hex('#c9d48f')), 1);
     for (let i = 0; i < 5; i++) {
@@ -557,17 +652,24 @@ export class Hud {
       s.visible = d.visible = false;
       this.plus.push({ s, d, age: 9, x: 0, y: 0 });
     }
+    for (let i = 0; i < 8; i++) {
+      const s = sprite(new Pix(1, 1), 9);
+      s.visible = false;
+      this.feedPool.push(s);
+    }
     this.smoke = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({ color: 0xd9d4c2, size: 2, sizeAttenuation: false, depthTest: false }));
     this.smoke.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(24 * 3), 3));
     this.smoke.frustumCulled = false;
     this.smoke.renderOrder = 3;
-    this.scene.add(...this.flash, this.cross, this.crossHot, this.marker, this.tally, this.stickRing, this.stickKnob, this.smoke, ...this.plus.flatMap((p) => [p.s, p.d]));
+    this.scene.add(...this.flash, this.cross, this.marker, this.tally, this.ammo, this.speed, this.breath, this.breathHint, this.ammoHint, this.stickRing, this.stickKnob, this.smoke, ...this.feedPool, ...this.plus.flatMap((p) => [p.s, p.d]));
   }
 
-  setScore(n: number) {
-    if (n === this.score) return;
+  /** The score: points, and how many animals. */
+  setScore(n: number, kills = this.kills) {
+    if (n === this.score && kills === this.kills) return;
     const first = this.score < 0;
     this.score = n;
+    this.kills = kills;
     if (!first) this.pop = 0.4;
     this.paintTally();
   }
@@ -575,7 +677,7 @@ export class Hud {
   private paintTally() {
     const hot = this.pop > 0;
     const icon = tallyIcon();
-    const text = pixelText(`x${String(this.score).padStart(3, '0')}`, hot ? hex('#f2d36a') : CREAM, hot ? hex('#fff1b8') : hex('#fffbea'));
+    const text = pixelText(`${String(this.kills).padStart(2, '0')}  ${this.score.toLocaleString('en-US')}`, hot ? hex('#f2d36a') : CREAM, hot ? hex('#fff1b8') : hex('#fffbea'));
     const p = new Pix(icon.w + text.w + 1, Math.max(icon.h, text.h));
     p.blit(icon, 0, 0);
     p.blit(text, icon.w + 1, 0);
@@ -589,34 +691,49 @@ export class Hud {
     if (this.smokeP.length > 24) this.smokeP.splice(0, this.smokeP.length - 24);
   }
 
-  /** A hit: the marker round the middle. */
-  hit() {
+  /** A hit: the marker round the middle (bigger for a kill). */
+  hit(kill = false) {
     this.hitT = 0;
+    if (kill) this.killT = 0;
   }
 
-  /** A "+1" rising from where the animal was (in game pixels, y up), and under it how far the shot was. */
-  plusOne(x: number, y: number, metres: number) {
-    const p = this.plus.find((q) => q.age >= 1.2) ?? this.plus[0];
-    repaint(p.d, pixelText(`${metres}m!`, CREAM, hex('#fffbea')));
+  /** The points rising from where the animal was (in game pixels, y up), and under them how far the shot was. */
+  plusOne(x: number, y: number, metres: number, points = 100) {
+    const p = this.plus.find((q) => q.age >= 1.4) ?? this.plus[0];
+    repaint(p.s, pixelText(`+${points}`, hex('#f2d36a'), hex('#fff1b8')));
+    repaint(p.d, pixelText(`${metres}m`, CREAM, hex('#fffbea')));
     p.age = 0;
     p.x = x - p.s.userData.w / 2;
     p.y = y;
   }
 
-  update(dt: number, o: { W: number; H: number; hot: boolean; show: boolean; aim: number; muzzle: [number, number]; stick: { on: boolean; x0: number; y0: number; x: number; y: number } | null }) {
+  /** The medals for a kill, stacked up on the right one after another, and their product if there are several. */
+  medals(list: { name: string; mult: number; tone: string }[], total: number) {
+    const all = [...list.map((m) => ({ text: `${m.name} ×${m.mult % 1 ? m.mult.toFixed(1) : m.mult}`, tone: m.tone })), ...(list.length > 1 ? [{ text: `×${total.toFixed(1)}`, tone: 'gold' }] : [])];
+    // older ones move up out of the way
+    for (const f of this.feed) f.slot += all.length;
+    all.forEach((m, i) => {
+      const s = this.feedPool.find((x) => !this.feed.some((f) => f.s === x)) ?? this.feed.shift()!.s;
+      const [c, top] = TONES[m.tone] ?? TONES.cream;
+      repaint(s, pixelText(m.text, hex(c), hex(top)));
+      this.feed.push({ s, age: -i * 0.12, slot: all.length - 1 - i });
+    });
+    while (this.feed.length > 8) this.feed.shift()!.s.visible = false;
+  }
+
+  update(dt: number, o: HudState) {
     const { W, H } = o;
     this.cam.right = W;
     this.cam.top = H;
     this.cam.updateProjectionMatrix();
     this.scene.visible = o.show;
-    const scoped = o.aim > 0.75;
+    const scoped = o.aim > 0.75 && o.weapon === 'rifle';
     const [mx, my] = o.muzzle;
     this.flashT += dt;
     this.flash.forEach((f, i) => {
-      f.visible = !scoped && (i === 0 ? this.flashT < 0.045 : this.flashT >= 0.045 && this.flashT < 0.085);
+      f.visible = !scoped && o.weapon !== 'knife' && (i === 0 ? this.flashT < 0.045 : this.flashT >= 0.045 && this.flashT < 0.085);
       place(f, mx - (f.userData.w - 1) / 2, my - (f.userData.h - 1) / 2);
     });
-    // a wisp of smoke from the muzzle, drifting up and away
     const sp = this.smoke.geometry.getAttribute('position') as THREE.BufferAttribute;
     this.smokeP = this.smokeP.filter((s) => s.age < 0.7);
     for (let i = 0; i < 24; i++) {
@@ -635,31 +752,94 @@ export class Hud {
       sp.setXYZ(i, gone ? -99 : Math.round(mx + s.x) + 0.5, gone ? -99 : Math.round(my + s.y) + 0.5, 0);
     }
     sp.needsUpdate = true;
-    // the crosshair, dead centre (the scope has its own reticle)
-    const cx = Math.floor(W / 2) - 5;
-    const cy = Math.floor(H / 2) - 5;
-    place(this.cross, cx, cy);
-    place(this.crossHot, cx, cy);
-    this.cross.visible = !o.hot && o.aim < 0.3;
-    this.crossHot.visible = o.hot && o.aim < 0.3;
+    // the crosshair, repainted only when its gap (or its weapon, or what's in it) changes
+    const gap = Math.max(0, Math.min(24, Math.round(o.gap)));
+    const ck = `${o.weapon}${gap}${o.hot}${o.cross}`;
+    if (ck !== this.crossKey) {
+      this.crossKey = ck;
+      repaint(this.cross, dynamicCross(o.weapon, gap, o.hot ? hex('#e5704f') : o.cross));
+    }
+    // gone while you look down the scope or the shotgun's sights (the sights are the aim)
+    this.cross.visible = !scoped && (o.aim < 0.3 || o.weapon === 'knife');
+    place(this.cross, Math.floor(W / 2) - Math.floor(this.cross.userData.w / 2), Math.floor(H / 2) - Math.floor(this.cross.userData.h / 2));
     this.hitT += dt;
+    this.killT += dt;
     this.marker.visible = this.hitT < 0.28;
-    place(this.marker, Math.floor(W / 2) - 7, Math.floor(H / 2) - 7);
-    // the counter, top centre; it hops a pixel and flashes warm when it goes up
+    const ks = this.killT < 0.35 ? 1 : 0;
+    this.marker.scale.set(15 + ks * 6, 15 + ks * 6, 1);
+    place(this.marker, Math.floor(W / 2) - 7 - ks * 3, Math.floor(H / 2) - 7 - ks * 3);
     if (this.pop > 0) {
       this.pop -= dt;
       if (this.pop <= 0) this.paintTally();
     }
     place(this.tally, Math.floor((W - this.tally.userData.w) / 2), H - this.tally.userData.h - 5 + (this.pop > 0.2 ? 1 : 0));
+    // the ammo, bottom right; the knife has none
+    const ak = o.ammo ? `${o.ammo[0]}/${o.ammo[1]}${o.reloading ? 'r' : ''}` : 'knife';
+    if (ak !== this.ammoKey) {
+      this.ammoKey = ak;
+      repaint(this.ammo, o.ammo ? pixelText(o.reloading ? `${o.ammo[0]}/${o.ammo[1]} ...` : `${o.ammo[0]}/${o.ammo[1]}`, o.ammo[0] === 0 ? hex('#f08a7a') : CREAM, hex('#fffbea')) : pixelText('KNIFE', CREAM, hex('#fffbea')));
+    }
+    place(this.ammo, W - this.ammo.userData.w - 6, 6);
+    // over the ammo: R to reload when it's out, or that it's going in
+    const rk = !o.ammo ? '' : o.reloading ? 'in' : o.ammo[0] === 0 && o.hints ? 'out' : '';
+    if (rk !== this.ammoHintKey) {
+      this.ammoHintKey = rk;
+      if (rk) repaint(this.ammoHint, rk === 'in' ? pixelText('RELOADING', CREAM, hex('#fffbea')) : keyHint('R', 'RELOAD', hex('#f08a7a')));
+    }
+    this.ammoHint.visible = !!rk;
+    place(this.ammoHint, W - this.ammoHint.userData.w - 6, 6 + this.ammo.userData.h + 2);
+    // the breath, held, under the reticle
+    const bk = o.breath ? `${Math.round(o.breath.left * 20)}${o.breath.tired}` : '';
+    this.breath.visible = !!o.breath && scoped;
+    if (o.breath && bk !== this.breathKey) {
+      this.breathKey = bk;
+      const w = 30;
+      const p = new Pix(w + 2, 5);
+      p.rect(0, 0, w + 2, 5, hex('#1a1410'));
+      p.rect(1, 1, Math.round(w * o.breath.left), 3, hex(o.breath.tired ? '#f08a7a' : '#a6cd83'));
+      p.rect(1, 1, Math.round(w * o.breath.left), 1, hex(o.breath.tired ? '#ffd8cc' : '#e2f4c8'));
+      repaint(this.breath, p);
+    }
+    place(this.breath, Math.floor(W / 2) - 16, Math.floor(H * 0.22));
+    // under the bar: what Shift does, that you're holding it, or that you're out of breath
+    const hk = !o.breath || !scoped || !o.hints ? '' : o.breath.tired ? 'tired' : o.breath.holding ? 'hold' : 'can';
+    if (hk !== this.breathHintKey) {
+      this.breathHintKey = hk;
+      if (hk) repaint(this.breathHint, hk === 'tired' ? pixelText('CATCHING BREATH', hex('#f08a7a'), hex('#ffd8cc')) : hk === 'hold' ? keyHint('SHIFT', 'STEADY', hex('#a6cd83')) : keyHint('SHIFT', 'HOLD BREATH'));
+    }
+    this.breathHint.visible = !!hk;
+    place(this.breathHint, Math.floor((W - this.breathHint.userData.w) / 2), Math.floor(H * 0.22) - this.breathHint.userData.h - 3);
+    // how fast, when it's faster than running
+    const vk = o.speed !== null ? String(Math.round(o.speed)) : '';
+    this.speed.visible = o.speed !== null && o.speedo;
+    if (o.speed !== null && vk !== this.speedKey) {
+      this.speedKey = vk;
+      repaint(this.speed, pixelText(`SPEED ${vk}`, hex('#a6cd83'), hex('#e2f4c8')));
+    }
+    place(this.speed, Math.floor((W - this.speed.userData.w) / 2), Math.floor(H * 0.3));
+    // points rising from what you got
     for (const p of this.plus) {
       p.age += dt;
-      p.s.visible = p.d.visible = p.age < 1.2;
+      p.s.visible = p.d.visible = p.age < 1.4;
       if (!p.s.visible) continue;
       const rise = Math.min(1, p.age / 0.5) * 12;
       place(p.s, p.x, p.y + rise);
       place(p.d, p.x + (p.s.userData.w - p.d.userData.w) / 2, p.y + rise - p.d.userData.h);
-      p.s.material.uniforms.fade.value = p.d.material.uniforms.fade.value = Math.max(0, (p.age - 0.75) / 0.45);
+      p.s.material.uniforms.fade.value = p.d.material.uniforms.fade.value = Math.max(0, (p.age - 0.9) / 0.5);
     }
+    // the medals: each comes in from the right in steps, stays a while, and dithers away
+    this.feed = this.feed.filter((f) => {
+      f.age += dt;
+      if (f.age > 2.8) {
+        f.s.visible = false;
+        return false;
+      }
+      f.s.visible = f.age > 0;
+      const slide = f.age < 0.18 ? Math.round((1 - f.age / 0.18) * 4) * 6 : 0;
+      place(f.s, W - f.s.userData.w - 6 + slide, Math.floor(H * 0.56) + f.slot * 11);
+      f.s.material.uniforms.fade.value = Math.max(0, (f.age - 2.3) / 0.5);
+      return true;
+    });
     // the touch stick, where the left thumb is
     const st = o.stick;
     this.stickRing.visible = this.stickKnob.visible = !!st?.on;

@@ -54,6 +54,13 @@ float bayer(vec2 p) {
 export const light = {
   shadowMap: { value: null as THREE.Texture | null },
   shadowMatrix: { value: new THREE.Matrix4() },
+  /**
+   * Pill mode's second, coarse shadow map over the whole wood round you, for what's past the sharp one (so the
+   * light far off is the light you'll find when you get there). Off on the walk.
+   */
+  shadowFar: { value: null as THREE.Texture | null },
+  shadowFarMatrix: { value: new THREE.Matrix4() },
+  farOn: { value: 0 },
   /** The direction sunlight travels: down, towards you, and to the left. */
   sunDir: { value: new THREE.Vector3(-0.32, -0.86, 0.4).normalize() },
   sunColor: { value: new THREE.Vector3(1, 0.94, 0.76) },
@@ -67,6 +74,9 @@ export const light = {
 export const LIGHT = /* glsl */ `
 uniform sampler2D shadowMap;
 uniform mat4 shadowMatrix;
+uniform sampler2D shadowFar;
+uniform mat4 shadowFarMatrix;
+uniform float farOn;
 uniform vec3 sunDir;
 uniform vec3 sunColor;
 uniform vec3 ambient;
@@ -76,9 +86,16 @@ uniform vec3 lampColor;
 float sunAt(vec3 wp, float bias) {
   vec4 s = shadowMatrix * vec4(wp, 1.0);
   vec3 c = s.xyz / s.w;
-  // beyond the shadow map: open sky over the meadow, full shade under the roof of leaves (no seam where it ends)
-  if (c.x < 0.0 || c.x > 1.0 || c.y < 0.0 || c.y > 1.0 || c.z > 1.0) return wp.z > roofZ ? 1.0 : 0.0;
-  return c.z - bias > texture2D(shadowMap, c.xy).r ? 0.0 : 1.0;
+  // beyond the maps: open sky over the meadow, full shade under the roof of leaves (no seam where it ends)
+  float lit = wp.z > roofZ ? 1.0 : 0.0;
+  if (c.x >= 0.0 && c.x <= 1.0 && c.y >= 0.0 && c.y <= 1.0 && c.z <= 1.0) lit = c.z - bias > texture2D(shadowMap, c.xy).r ? 0.0 : 1.0;
+  else if (farOn > 0.5) {
+    // past the sharp map: pill mode's coarse one over the whole wood
+    vec4 f = shadowFarMatrix * vec4(wp, 1.0);
+    vec3 q = f.xyz / f.w;
+    if (q.x >= 0.0 && q.x <= 1.0 && q.y >= 0.0 && q.y <= 1.0 && q.z <= 1.0) lit = q.z - max(bias * 1.5, 0.0008) > texture2D(shadowFar, q.xy).r ? 0.0 : 1.0;
+  }
+  return lit;
 }
 vec3 lamp(vec3 wp) {
   vec3 d = wp - lampPos.xyz;
@@ -205,6 +222,7 @@ void main() {
 const SOLID_FRAG = /* glsl */ `
 uniform sampler2D map;
 uniform float appear;
+uniform float soft;
 varying vec2 vUv;
 varying vec3 vWorld;
 varying vec3 vNormal;
@@ -220,7 +238,18 @@ void main() {
   float side = face > 0.3 ? 1.0 : face > -0.15 ? 0.84 : 0.68;
   float top = n.y > 0.6 ? 1.08 : 1.0;
   float sun = face > 0.0 ? sunAt(vWorld + n * 0.03, 0.0015) : 0.0;
-  vec3 l = ambient * side * top + sunColor * sun * (face > 0.45 ? 0.62 : 0.4) + lamp(vWorld);
+  float sunK = face > 0.45 ? 0.62 : 0.4;
+  if (soft > 0.5) {
+    // a person: gentler steps, set further round, so a face is never cut in two by the light
+    side = face > -0.2 ? 1.0 : face > -0.55 ? 0.9 : 0.8;
+    top = 1.0;
+    // and no cast shadows on her at all: the shadow map's texels are bigger than her face, they'd cut it in two;
+    // her shading is painted in, the way 3D pixel-art characters are
+    sun = 0.35;
+    sunK = 0.4;
+    side *= 0.95;
+  }
+  vec3 l = ambient * side * top + sunColor * sun * sunK + lamp(vWorld);
   gl_FragColor = vec4(c.rgb * l, 1.0);
 }`;
 
@@ -228,8 +257,8 @@ void main() {
  * A real solid thing (pill mode): lit on its faces by the sun's direction in hard steps, shadowed and casting
  * shadow like everything else. Shaped like a LayerMesh, so the forest handles it the same way.
  */
-export function solidMesh(geometry: THREE.BufferGeometry, tex: THREE.Texture, caster = true): LayerMesh {
-  const mat = new THREE.ShaderMaterial({ uniforms: { ...light, map: { value: tex }, appear: { value: 1 } }, vertexShader: SOLID_VERT, fragmentShader: SOLID_FRAG, side: THREE.DoubleSide });
+export function solidMesh(geometry: THREE.BufferGeometry, tex: THREE.Texture, caster = true, soft = false): LayerMesh {
+  const mat = new THREE.ShaderMaterial({ uniforms: { ...light, map: { value: tex }, appear: { value: 1 }, soft: { value: soft ? 1 : 0 } }, vertexShader: SOLID_VERT, fragmentShader: SOLID_FRAG, side: THREE.DoubleSide });
   const depth = new THREE.ShaderMaterial({ uniforms: { map: { value: tex } }, vertexShader: SOLID_VERT, fragmentShader: DEPTH_FRAG, side: THREE.DoubleSide });
   const m = new THREE.Mesh(geometry, mat) as unknown as LayerMesh;
   m.userData = { born: -1, lit: mat, depth, caster };
@@ -323,7 +352,7 @@ export function skyMesh() {
  * looked up in a ramp per stretch of the walk (meadow, wood, clearing, hollow); stretches hand over
  * with a dither, never a smooth blend. Sunlit grass turns yellow-green, like under a gap in the leaves.
  */
-export function floorMesh(pattern: THREE.Texture, ramps: THREE.Texture, rows: number, texel: number) {
+export function floorMesh(pattern: THREE.Texture, ramps: THREE.Texture, rows: number, texel: number, litter: THREE.Texture | null = null) {
   const mat = new THREE.ShaderMaterial({
     uniforms: {
       ...light,
@@ -337,6 +366,15 @@ export function floorMesh(pattern: THREE.Texture, ramps: THREE.Texture, rows: nu
       wet: { value: 0 },
       puddles: { value: Array.from({ length: 8 }, () => new THREE.Vector4()) },
       contacts: { value: Array.from({ length: 4 }, () => new THREE.Vector4()) },
+      // what lies on the ground this season, and how much of it each stretch shows
+      litter: { value: litter },
+      litterAmt: { value: [0, 0, 0, 0, 0] },
+      // winter: the litter twinkles, puddles are ice, and a cat's prints run down the path to the hollow
+      winter: { value: 0 },
+      exitX: { value: 4.35 },
+      // pill mode: the shade round every trunk's foot, baked from above over the fenced wood
+      ao: { value: null as THREE.Texture | null },
+      aoBox: { value: new THREE.Vector4(0, 0, 0, 0) },
     },
     vertexShader: /* glsl */ `
       varying vec3 vWorld;
@@ -356,6 +394,12 @@ export function floorMesh(pattern: THREE.Texture, ramps: THREE.Texture, rows: nu
       uniform float wet;
       uniform vec4 puddles[8];
       uniform vec4 contacts[4];
+      uniform sampler2D litter;
+      uniform float litterAmt[5];
+      uniform float winter;
+      uniform float exitX;
+      uniform sampler2D ao;
+      uniform vec4 aoBox;
       varying vec3 vWorld;
       ${BAYER}
       ${LIGHT}
@@ -382,8 +426,43 @@ export function floorMesh(pattern: THREE.Texture, ramps: THREE.Texture, rows: nu
         float sun = sunAt(vWorld, 0.002);
         vec3 col = ramp(row, v);
         if (sun > 0.5 && z < roofZ) col = ramp(rows - 1.0, v + 0.05);
+        // the season on the ground: leaves, petals, twigs, or glints in the snow that wink as you move
+        // bigger leaves than the grass strokes, so each one stays whole at the screen's pixel size, thinning out
+        // a few steps away (a dither, not a fade); beyond that the floor's own colours carry the carpet
+        vec4 lit = texture2D(litter, uv * 0.62 + 0.17);
+        float far = length(vWorld - cameraPosition);
+        float amt = litterAmt[int(min(row, 4.0))] * clamp(1.6 - far / 5.5, 0.0, 1.0);
+        if (lit.a > 0.0 && lit.a > 1.0 - amt) {
+          if (winter > 0.5 && lit.r > 0.97) {
+            float tw = fract(sin(dot(floor(vWorld.xz * 40.0), vec2(12.9898, 78.233)) + floor(cameraPosition.x * 9.0 + cameraPosition.z * 7.0)) * 43758.5);
+            if (tw > 0.55) col = mix(col, vec3(1.0), sun > 0.5 ? 0.9 : 0.55);
+          } else col = lit.rgb;
+        }
+        // the cat's paw prints in the snow, one after another down the path to the hollow
+        if (winter > 0.5 && z < -6.0 && z > -101.0) {
+          float stepZ = 0.26;
+          float i = floor(-z / stepZ);
+          float zc = -(i + 0.5) * stepZ;
+          float side = mod(i, 2.0) < 1.0 ? -1.0 : 1.0;
+          float px = zc > -56.0 ? 0.0 : zc > -71.0 ? 0.3 : zc > -96.0 ? 0.3 + ((-71.0 - zc) / 25.0) * (exitX - 0.3) : exitX;
+          px += side * 0.055 + (fract(sin(i * 17.3) * 43758.5) - 0.5) * 0.05;
+          vec2 q = vWorld.xz - vec2(px, zc);
+          float pad = length(q * vec2(1.0, 1.25));
+          float toes = min(min(length(q - vec2(-0.024, -0.032)), length(q - vec2(0.024, -0.032))), min(length(q - vec2(-0.01, -0.045)), length(q - vec2(0.01, -0.045))));
+          if (pad < 0.022 || toes < 0.009) col = mix(col, vec3(0.42, 0.5, 0.62), 0.55);
+        }
         vec3 l = ambient + sunColor * sun * 0.32 + lamp(vWorld);
         vec3 outc = col * l;
+        // round every trunk's foot, its shade on the ground (pill mode), in two dithered steps
+        if (aoBox.z > 0.0) {
+          vec2 auv = (vWorld.xz - aoBox.xy) / aoBox.zw;
+          if (auv.x > 0.0 && auv.y > 0.0 && auv.x < 1.0 && auv.y < 1.0) {
+            float o = texture2D(ao, auv).r;
+            float dth = bayer(gl_FragCoord.xy);
+            if (o > 0.55 + dth * 0.2) outc *= 0.62;
+            else if (o > 0.25 + dth * 0.2) outc *= 0.8;
+          }
+        }
         // where something stands, the ground under and round it is in its shade, in two hard steps
         for (int i = 0; i < 4; i++) {
           vec4 C = contacts[i];
@@ -412,7 +491,16 @@ export function floorMesh(pattern: THREE.Texture, ramps: THREE.Texture, rows: nu
             float d = length(dv);
             if (age < 0.8 && abs(d - age * 0.42) < 0.022) rip = dv / max(d, 1e-4) * (1.0 - age);
           }
-          if (pud > 0.0) {
+          if (pud > 0.0 && winter > 0.5) {
+            // ice: pale and cold, a dim reflection, a crack or two, no rings
+            vec2 ruv = gl_FragCoord.xy / res;
+            ruv.y = 1.0 - ruv.y;
+            vec3 refl = texture2D(reflection, ruv).rgb;
+            vec3 ice = mix(vec3(0.62, 0.72, 0.8), refl, 0.35) * (ambient * 0.8 + 0.25);
+            float crack = abs(fract(dot(vWorld.xz, vec2(3.1, 7.3)) + texture2D(pattern, uv * 0.7).r * 2.0) - 0.5);
+            if (crack < 0.03) ice *= 1.25;
+            outc = mix(outc, ice, pud < 0.06 ? 0.4 : 0.85);
+          } else if (pud > 0.0) {
             vec2 ruv = gl_FragCoord.xy / res;
             ruv.y = 1.0 - ruv.y;
             ruv += rip * vec2(2.0, 1.0) / res;
@@ -456,6 +544,14 @@ export function fogMesh(color: THREE.Texture, depth: THREE.Texture) {
         shafts: { value: 1 },
         maxDist: { value: 110 },
         mirror: { value: 1 },
+        // pill mode: the fog belongs to the place it's in (the weather along the walk, laid out in the world),
+        // not to where you stand, so the haze over the clearing stays over the clearing as you walk to it
+        zoned: { value: 0 },
+        zoneZ: { value: new Array(8).fill(0) },
+        zoneFog: { value: Array.from({ length: 8 }, () => new THREE.Vector3()) },
+        zoneDen: { value: new Array(8).fill(0.04) },
+        zoneFall: { value: new Array(8).fill(3) },
+        zoneShaft: { value: new Array(8).fill(6) },
       },
       vertexShader: /* glsl */ `void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }`,
       fragmentShader: /* glsl */ `
@@ -472,9 +568,37 @@ export function fogMesh(color: THREE.Texture, depth: THREE.Texture) {
         uniform float shafts;
         uniform float maxDist;
         uniform float mirror;
+        uniform float zoned;
+        uniform float zoneZ[8];
+        uniform vec3 zoneFog[8];
+        uniform float zoneDen[8];
+        uniform float zoneFall[8];
+        uniform float zoneShaft[8];
         ${BAYER}
         ${LIGHT}
         const int STEPS = 30;
+        // the fog of the place at z: the walk's weather, from the edge of the wood down to the hollow
+        void zone(float z, out vec3 c, out float d, out float f, out float sh) {
+          c = zoneFog[0];
+          d = zoneDen[0];
+          f = zoneFall[0];
+          sh = zoneShaft[0];
+          for (int i = 0; i < 7; i++) {
+            if (z < zoneZ[i] && z >= zoneZ[i + 1]) {
+              float t = (zoneZ[i] - z) / (zoneZ[i] - zoneZ[i + 1]);
+              c = mix(zoneFog[i], zoneFog[i + 1], t);
+              d = mix(zoneDen[i], zoneDen[i + 1], t);
+              f = mix(zoneFall[i], zoneFall[i + 1], t);
+              sh = mix(zoneShaft[i], zoneShaft[i + 1], t);
+            }
+          }
+          if (z < zoneZ[7]) {
+            c = zoneFog[7];
+            d = zoneDen[7];
+            f = zoneFall[7];
+            sh = zoneShaft[7];
+          }
+        }
         void main() {
           vec2 uv = gl_FragCoord.xy / res;
           vec3 col = texture2D(tColor, uv).rgb;
@@ -504,10 +628,15 @@ export function fogMesh(color: THREE.Texture, depth: THREE.Texture) {
             vec3 p = camPos + dir * t;
             // the mirrored view (for puddles) marches below the ground; fold it back up
             p.y *= mirror;
-            float dens = density * exp(-max(p.y, 0.0) / falloff);
+            vec3 fc = fogColor;
+            float den = density;
+            float fall = falloff;
+            float sh = shafts;
+            if (zoned > 0.5) zone(p.z, fc, den, fall, sh);
+            float dens = den * exp(-max(p.y, 0.0) / fall);
             float sun = sunAt(p, 0.0);
             // light through gaps in the roof scatters strongly; the open meadow just glows a little
-            vec3 inS = fogColor + sunColor * sun * phase * (p.z < roofZ ? shafts : 0.5);
+            vec3 inS = fc + sunColor * sun * phase * (p.z < roofZ ? sh : 0.5);
             S += T * dens * ds * inS;
             T *= exp(-dens * ds);
           }
@@ -561,6 +690,40 @@ export function blitMesh(tex: THREE.Texture) {
         }`,
       depthTest: false,
       depthWrite: false,
+    }),
+  );
+}
+
+/**
+ * Lays a frame of its own pixel size over the screen at a whole-number scale, only where it's drawn (pill mode's
+ * HUD, kept at the wood's chunky pixels when the picture under it is finer), with the same faded-film lift.
+ */
+export function overlayMesh(tex: THREE.Texture) {
+  return fullscreen(
+    new THREE.ShaderMaterial({
+      uniforms: {
+        frame: { value: tex },
+        lowRes: { value: new THREE.Vector2(1, 1) },
+        scale: { value: 1 },
+        offset: { value: new THREE.Vector2() },
+        lift: { value: new THREE.Vector3(0.035, 0.04, 0.03) },
+      },
+      vertexShader: /* glsl */ `void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+      fragmentShader: /* glsl */ `
+        uniform sampler2D frame;
+        uniform vec2 lowRes;
+        uniform float scale;
+        uniform vec2 offset;
+        uniform vec3 lift;
+        void main() {
+          vec2 p = floor((gl_FragCoord.xy + offset) / scale);
+          vec4 c = texture2D(frame, (p + 0.5) / lowRes);
+          if (c.a < 0.5) discard;
+          gl_FragColor = vec4(lift + min(c.rgb, 1.0) * (1.0 - lift), 1.0);
+        }`,
+      depthTest: false,
+      depthWrite: false,
+      transparent: false,
     }),
   );
 }

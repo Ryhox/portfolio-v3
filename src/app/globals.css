@@ -155,7 +155,7 @@ main {
 }
 
 .walk {
-  height: 30svh;
+  height: 135svh;
 }
 
 .walk-out {
@@ -444,6 +444,15 @@ main {
   background: #121b14;
   transition: opacity 0.45s ease, visibility 0s linear 0.45s;
   will-change: opacity;
+  /* only while you're in the wood and it isn't painted yet: the page above it never waits for it */
+  opacity: 0;
+  visibility: hidden;
+}
+
+html[data-in-wood]:not([data-forest]) .loader {
+  opacity: 1;
+  visibility: visible;
+  transition: none;
   /* if the forest never turns up, don't keep anyone waiting */
   animation: loader-out 0.6s ease 15s forwards;
 }
@@ -723,58 +732,102 @@ html[data-forest='ready'] :is(.hero-socials, .work-text) * {
   user-select: none;
 }
 
-/* the cosy pixel buttons on the page (the footer's socials), matching the ones painted in the forest:
-   a dark outline with stepped corners, a sage body with a light band on top and a dark one below,
-   a drop shadow, brighter under the pointer, a press that flattens it */
+/* the page's pixel buttons (the footer's socials, a project's links, the pill's Take): drawn like the menus in the
+   wood, a scrap of the pale paper with a pixel-stepped outline in ink, ink letters, a yellow highlighter under the
+   pointer, and a press that pushes it down onto its shadow */
 .pixel-btn {
   --b: 3px;
+  --pb-ink: #1d1612;
   position: relative;
   display: inline-flex;
   align-items: center;
   gap: 9px;
   margin: var(--b);
-  padding: 7px 14px 9px 12px;
+  padding: 8px 15px 9px 13px;
   font-family: var(--font-pixel), monospace;
-  font-weight: 600;
+  font-weight: 700;
   font-size: 15px;
   line-height: 1;
-  color: #fffbea !important;
-  text-shadow: 0 2px #2b1e16;
-  background: linear-gradient(#c4e199 0 calc(var(--b) * 2), #94bc72 calc(var(--b) * 2) calc(100% - var(--b) * 2), #668f4c calc(100% - var(--b) * 2));
+  color: var(--pb-ink) !important;
+  text-shadow: none;
+  background: #fbf6e9;
   box-shadow:
-    0 calc(var(--b) * -1) 0 #2b1e16,
-    0 var(--b) 0 #2b1e16,
-    calc(var(--b) * -1) 0 0 #2b1e16,
-    var(--b) 0 0 #2b1e16,
-    0 calc(var(--b) * 2) 0 rgb(26 18 13 / 0.42);
+    0 calc(var(--b) * -1) 0 var(--pb-ink),
+    0 var(--b) 0 var(--pb-ink),
+    calc(var(--b) * -1) 0 0 var(--pb-ink),
+    var(--b) 0 0 var(--pb-ink),
+    calc(var(--b) * 2) calc(var(--b) * 2.5) 0 rgb(18 13 11 / 0.45);
   cursor: pointer;
-  transition: transform 0.08s steps(1), background 0.08s steps(1);
+  transition: translate 0.08s steps(1), background 0.08s steps(1);
 }
 
-.pixel-btn::after {
-  display: none;
+/* hovered, a button grows moss: it creeps along the top a pixel block at a time with a flower or two in it, then
+   a tuft with a pink flower pops up on the corner, and the paper takes a pale green of it */
+:root {
+  --moss-strip: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2040%207%27%20shape-rendering%3D%27crispEdges%27%3E%3Crect%20x%3D%278%27%20y%3D%271%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23f6b4c4%27%2F%3E%3Crect%20x%3D%277%27%20y%3D%272%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23e47f98%27%2F%3E%3Crect%20x%3D%278%27%20y%3D%272%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23f2c24a%27%2F%3E%3Crect%20x%3D%279%27%20y%3D%272%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23e47f98%27%2F%3E%3Crect%20x%3D%2729%27%20y%3D%272%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23ffffff%27%2F%3E%3Crect%20x%3D%278%27%20y%3D%273%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23e47f98%27%2F%3E%3Crect%20x%3D%2719%27%20y%3D%273%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23f2c24a%27%2F%3E%3Crect%20x%3D%2728%27%20y%3D%273%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23fff6e6%27%2F%3E%3Crect%20x%3D%2729%27%20y%3D%273%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23f2c24a%27%2F%3E%3Crect%20x%3D%2730%27%20y%3D%273%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23fff6e6%27%2F%3E%3Crect%20x%3D%270%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%272%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%273%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%274%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%275%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%276%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%277%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%278%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%279%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2710%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2711%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2713%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2715%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2718%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2719%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2720%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2723%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2725%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2726%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2729%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23fff6e6%27%2F%3E%3Crect%20x%3D%2731%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2732%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2734%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2736%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2737%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2739%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%270%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%271%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%272%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%273%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%274%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%275%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%276%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%277%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%278%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%279%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2710%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2711%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2712%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2713%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2714%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2715%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2716%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2717%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2718%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2719%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2720%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2721%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2722%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2723%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2724%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2725%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2726%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2727%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2728%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2729%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2730%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2731%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2732%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2733%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2734%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2735%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2736%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2737%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2738%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2739%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%270%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%271%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%272%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%273%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%274%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%275%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%276%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%277%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%278%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%279%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%2710%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2711%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%2712%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2713%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%2714%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2715%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%2716%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2717%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2718%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2719%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%2720%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%2721%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2722%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2723%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2724%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2725%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2726%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2727%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2728%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2729%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2730%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2731%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%2732%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%2733%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2734%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%2735%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2736%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%2737%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%2738%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2739%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3C%2Fsvg%3E");
+  --moss-tuft: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2014%2010%27%20shape-rendering%3D%27crispEdges%27%3E%3Crect%20x%3D%276%27%20y%3D%271%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23f6b4c4%27%2F%3E%3Crect%20x%3D%275%27%20y%3D%272%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23e47f98%27%2F%3E%3Crect%20x%3D%276%27%20y%3D%272%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23f2c24a%27%2F%3E%3Crect%20x%3D%277%27%20y%3D%272%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23e47f98%27%2F%3E%3Crect%20x%3D%271%27%20y%3D%273%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%276%27%20y%3D%273%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23e47f98%27%2F%3E%3Crect%20x%3D%271%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%275%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%276%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%277%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%278%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2710%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23fff6e6%27%2F%3E%3Crect%20x%3D%2711%27%20y%3D%274%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23fff6e6%27%2F%3E%3Crect%20x%3D%272%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%273%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%274%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%275%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%276%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%277%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%278%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%279%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2710%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%2711%27%20y%3D%275%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23f2c24a%27%2F%3E%3Crect%20x%3D%272%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%273%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%274%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%275%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%276%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%277%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%278%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%279%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2710%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2711%27%20y%3D%276%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%271%27%20y%3D%277%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%272%27%20y%3D%277%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%273%27%20y%3D%277%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%274%27%20y%3D%277%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%275%27%20y%3D%277%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%276%27%20y%3D%277%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%277%27%20y%3D%277%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%278%27%20y%3D%277%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%279%27%20y%3D%277%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2710%27%20y%3D%277%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2711%27%20y%3D%277%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2712%27%20y%3D%277%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%270%27%20y%3D%278%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%271%27%20y%3D%278%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%272%27%20y%3D%278%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%273%27%20y%3D%278%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%274%27%20y%3D%278%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%275%27%20y%3D%278%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%276%27%20y%3D%278%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%277%27%20y%3D%278%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%278%27%20y%3D%278%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%279%27%20y%3D%278%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%2710%27%20y%3D%278%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%2711%27%20y%3D%278%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%2712%27%20y%3D%278%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%2713%27%20y%3D%278%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%23b6d36e%27%2F%3E%3Crect%20x%3D%270%27%20y%3D%279%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3Crect%20x%3D%271%27%20y%3D%279%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%272%27%20y%3D%279%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%273%27%20y%3D%279%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%274%27%20y%3D%279%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%275%27%20y%3D%279%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%276%27%20y%3D%279%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%277%27%20y%3D%279%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%278%27%20y%3D%279%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%233f6a2e%27%2F%3E%3Crect%20x%3D%279%27%20y%3D%279%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2710%27%20y%3D%279%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2711%27%20y%3D%279%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2712%27%20y%3D%279%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%235e8c3a%27%2F%3E%3Crect%20x%3D%2713%27%20y%3D%279%27%20width%3D%271%27%20height%3D%271%27%20fill%3D%27%238ab452%27%2F%3E%3C%2Fsvg%3E");
+}
+
+.pixel-btn::before,
+.pixel-btn::after,
+.ink-btn::before,
+.ink-btn::after {
+  content: '';
+  position: absolute;
+  display: block;
+  pointer-events: none;
+  image-rendering: pixelated;
+  opacity: 0;
+}
+
+.pixel-btn::before,
+.ink-btn::before {
+  left: calc(var(--b) * -1);
+  right: calc(var(--b) * -1);
+  top: calc(var(--b) * -7);
+  height: calc(var(--b) * 7);
+  background: var(--moss-strip) repeat-x 0 0 / calc(var(--b) * 40) 100%;
+  clip-path: inset(0 100% 0 0);
+}
+
+.pixel-btn::after,
+.ink-btn::after {
+  right: calc(var(--b) * -9);
+  bottom: calc(var(--b) * -2);
+  width: calc(var(--b) * 14);
+  height: calc(var(--b) * 10);
+  background: var(--moss-tuft) no-repeat 0 0 / 100% 100%;
+  scale: 0;
+  transform-origin: 50% 100%;
+}
+
+:is(.pixel-btn, .ink-btn):is(:hover, :focus-visible)::before {
+  opacity: 1;
+  clip-path: inset(0 0 0 0);
+  transition: clip-path 0.36s steps(8);
+}
+
+:is(.pixel-btn, .ink-btn):is(:hover, :focus-visible)::after {
+  opacity: 1;
+  scale: 1;
+  transition: scale 0.24s steps(3) 0.18s;
 }
 
 .pixel-btn:hover,
 .pixel-btn:focus-visible {
-  background: linear-gradient(#d6eeae 0 calc(var(--b) * 2), #a6cd83 calc(var(--b) * 2) calc(100% - var(--b) * 2), #77a05a calc(100% - var(--b) * 2));
-  box-shadow:
-    0 calc(var(--b) * -1) 0 #2b1e16,
-    0 var(--b) 0 #2b1e16,
-    calc(var(--b) * -1) 0 0 #2b1e16,
-    var(--b) 0 0 #2b1e16,
-    0 calc(var(--b) * 2) 0 rgb(26 18 13 / 0.42);
+  background: #e9f0cf;
   outline: none;
 }
 
 .pixel-btn:active {
-  transform: translateY(var(--b));
-  background: linear-gradient(#a9cd84 0 calc(var(--b) * 2), #86ad66 calc(var(--b) * 2) calc(100% - var(--b) * 2), #5d8445 calc(100% - var(--b) * 2));
+  transition: none;
+  translate: var(--b) var(--b);
   box-shadow:
-    0 calc(var(--b) * -1) 0 #2b1e16,
-    0 var(--b) 0 #2b1e16,
-    calc(var(--b) * -1) 0 0 #2b1e16,
-    var(--b) 0 0 #2b1e16;
+    0 calc(var(--b) * -1) 0 var(--pb-ink),
+    0 var(--b) 0 var(--pb-ink),
+    calc(var(--b) * -1) 0 0 var(--pb-ink),
+    var(--b) 0 0 var(--pb-ink),
+    var(--b) var(--b) 0 rgb(18 13 11 / 0.45);
 }
 
 .pixel-btn .px-icon {

@@ -5,24 +5,32 @@ import Pill from '@/components/Pill';
 import PlayUI from '@/components/PlayUI';
 import Socials from '@/components/Socials';
 import Work from '@/components/Work';
+import About from '@/components/site/About';
+import Dive from '@/components/site/Dive';
+import Crew from '@/components/site/Crew';
+import Intro from '@/components/site/Intro';
+import Nav from '@/components/site/Nav';
+import SiteFx from '@/components/site/SiteFx';
 import { site } from '@/content/site';
 
 /**
- * One long walk: the edge of the wood (hero), the trees, the clearing with the computer (work),
- * and the cat's hollow (footer). The canvas behind follows the scroll.
+ * The page: the name on white, bursting into the evening (who); the crew (what with); then a drawing of the
+ * clearing that comes alive into the wood itself, where the computer is (work), and the walk on to the cat's
+ * hollow (footer). The canvas behind follows the scroll.
  */
 export default function Home() {
   return (
     <>
-      <Loader />
       <Forest />
+      <Nav />
+      <Loader />
       <main>
-        <section className="hero" data-stage="hero">
-          {/* the name you see floats in the forest; this one is for readers and search */}
-          <h1 className="sr-only">Ryhox, {site.jobTitle.toLowerCase()}</h1>
-          <Socials className="socials hero-socials" pin="socials" />
-        </section>
-        <div className="walk" aria-hidden="true" />
+        <div className="site">
+          <Intro />
+          <About />
+          <Crew />
+        </div>
+        <Dive />
         <Work />
         <div className="walk walk-out" aria-hidden="true" />
       </main>
@@ -42,6 +50,7 @@ export default function Home() {
         </div>
       </footer>
       <PlayUI />
+      <SiteFx />
     </>
   );
 }

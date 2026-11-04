@@ -96,3 +96,43 @@ export const PUDDLES: [number, number, number, number][] = [
   [CLEARING.exitX + 0.95, -99.4, 0.6, 0.28],
   [CLEARING.exitX - 0.3, -91, 0.55, 0.3],
 ];
+
+type Air = { z: number; fog: string; sky: string; zenith: string; clouds: number; density: number; falloff: number; ambient: number; shafts: number; sun: number };
+const mixHex = (a: string, b: string, t: number) => {
+  const pa = parseInt(a.slice(1), 16);
+  const pb = parseInt(b.slice(1), 16);
+  const ch = (n: number, s: number) => (n >> s) & 255;
+  const m = (s: number) => Math.round(ch(pa, s) + (ch(pb, s) - ch(pa, s)) * t);
+  return `#${((m(16) << 16) | (m(8) << 8) | m(0)).toString(16).padStart(6, '0')}`;
+};
+
+/**
+ * The walk's light and fog in each season, from summer's (ATMOS): spring fresher and clearer, autumn golden and
+ * misty (the valleys fill with fog in October), winter bright and cold with the snow throwing light back up.
+ * `hollow` is true for the dark stretch down to the cat, which keeps its dark.
+ */
+export function atmosFor(season: 'spring' | 'summer' | 'autumn' | 'winter'): Air[] {
+  const S: Record<typeof season, { fog: [string, number, number]; sky: [string, number]; zenith: [string, number]; density: number; sun: number; ambient: number; clouds: number }> = {
+    summer: { fog: ['#000000', 0, 0], sky: ['#000000', 0], zenith: ['#000000', 0], density: 1, sun: 1, ambient: 1, clouds: 1 },
+    spring: { fog: ['#b9c8a6', 0.22, 0], sky: ['#e8efdc', 0.25], zenith: ['#86b0d4', 0.35], density: 0.88, sun: 1.05, ambient: 1.03, clouds: 1 },
+    autumn: { fog: ['#c9a878', 0.34, 0.25], sky: ['#eedcbc', 0.35], zenith: ['#a0b4c4', 0.2], density: 1.3, sun: 1, ambient: 0.97, clouds: 1.05 },
+    winter: { fog: ['#c8d0d8', 0.58, 0.35], sky: ['#e8ecf0', 0.62], zenith: ['#a8bccc', 0.5], density: 1.08, sun: 0.82, ambient: 1.16, clouds: 1.1 },
+  };
+  const m = S[season];
+  return ATMOS.map((a) => {
+    const hollow = a.z <= -86;
+    return {
+      ...a,
+      fog: mixHex(a.fog, hollow ? mixHex(m.fog[0], '#000000', 0.75) : m.fog[0], hollow ? m.fog[2] : m.fog[1]),
+      sky: mixHex(a.sky, m.sky[0], hollow ? m.sky[1] * 0.3 : m.sky[1]),
+      zenith: mixHex(a.zenith, m.zenith[0], hollow ? m.zenith[1] * 0.3 : m.zenith[1]),
+      density: a.density * m.density,
+      sun: a.sun * m.sun,
+      ambient: a.ambient * (hollow ? 1 + (m.ambient - 1) * 0.5 : m.ambient),
+      clouds: Math.min(1, a.clouds * m.clouds),
+    };
+  });
+}
+
+/** The colour of sunlight by season: warm in summer, gold in autumn, a cold white in winter. */
+export const SUN_TINT = { spring: [1, 0.95, 0.82], summer: [1, 0.94, 0.76], autumn: [1, 0.86, 0.6], winter: [0.98, 0.97, 0.92] } as const;

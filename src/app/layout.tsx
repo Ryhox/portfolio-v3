@@ -2,9 +2,12 @@ import type { Metadata, Viewport } from 'next';
 import { Caveat, Fraunces, Instrument_Sans, Pixelify_Sans } from 'next/font/google';
 import { absoluteUrl, site } from '@/content/site';
 import './globals.css';
+import './site.css';
+import './play.css';
 
 const display = Fraunces({
   subsets: ['latin'],
+  style: ['normal', 'italic'],
   axes: ['SOFT', 'WONK', 'opsz'],
   variable: '--font-display',
   display: 'swap',
@@ -44,7 +47,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: '#59684c',
+  themeColor: '#efe8d4',
   colorScheme: 'light',
   width: 'device-width',
   initialScale: 1,
@@ -65,13 +68,13 @@ const person = {
   sameAs: site.socials.map((s) => s.href),
 };
 
-const PIXEL_SIZE = `(function(){var d=document.documentElement,r=Math.min(window.devicePixelRatio||1,3),w=Math.round(innerWidth*r),h=Math.round(innerHeight*r),s=Math.max(1,Math.round(Math.min(w,h)/250));d.style.setProperty('--px',s/r+'px');d.dataset.shape=Math.ceil(w/s)/Math.ceil(h/s)>1.15?'wide':'tall';})();`;
+const PIXEL_SIZE = `(function(){var d=document.documentElement,r=Math.min(window.devicePixelRatio||1,3),w=Math.round(innerWidth*r),h=Math.round(innerHeight*r),s=Math.max(1,Math.round(Math.min(w,h)/250));d.style.setProperty('--px',s/r+'px');d.dataset.shape=Math.ceil(w/s)/Math.ceil(h/s)>1.15?'wide':'tall';var q=null;try{q=new URLSearchParams(location.search).get('season')||sessionStorage.getItem('season')}catch(e){}var m=new Date().getMonth();d.dataset.season=/^(spring|summer|autumn|winter)$/.test(q||'')?q:m==11||m<2?'winter':m<5?'spring':m<8?'summer':'autumn';})();`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${display.variable} ${text.variable} ${hand.variable} ${pixel.variable}`} suppressHydrationWarning>
       <head>
-        {/* before first paint: the game-pixel size and screen shape, so the snapshot of the forest lands exactly */}
+        {/* before first paint: the art-pixel size, the screen's shape and the season, so the page is painted right at once */}
         <script dangerouslySetInnerHTML={{ __html: PIXEL_SIZE }} />
       </head>
       <body>

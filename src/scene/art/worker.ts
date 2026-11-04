@@ -5,13 +5,15 @@
  */
 import { projects } from '@/content/projects';
 import { DISC_WORLD, DISCS, texelAt } from '../config';
+import { setPalette } from '../palette';
+import type { Season } from '../season';
 import type { Pix } from '../pix';
-import { floorPattern, floorRamps } from './floor';
+import { floorLitter, floorPattern, floorRamps } from './floor';
 import { edgeTree, type Layer } from './forest';
 import { bushSprite, TREE_D, TREE_SET, treeSprite } from './trees';
 import { catPawSprite, catSprite, computerSprite, discSprite, hollowStump, hollowWall, keyboardSprite } from './props';
 import { roofMask } from './roof';
-import { atlas, critterSprites, floraSprites, tuftSprites } from './sprites';
+import { atlas, critterSprites, floraFor } from './sprites';
 
 export type Painted = {
   key: string;
@@ -41,11 +43,13 @@ const trees = TREE_SET.flatMap((t) => t.seeds.map((seed, i) => () => {
 }));
 
 /** Three groups, painted by three workers at once: the two halves of the meadow, then everything further in. */
+let season: Season = 'summer';
 const groups: (() => void)[][] = [
   [
     () => layer('edgeL', edgeTree(-1)),
     () => {
       send('floorPattern', floorPattern());
+      send('floorLitter', floorLitter(season));
       const r = floorRamps();
       send('floorRamps', r.pix, {}, { rows: r.rows });
     },
@@ -59,9 +63,10 @@ const groups: (() => void)[][] = [
       send(`bush:${i}`, s.pix, { ax: s.ax, ay: s.ay, d: TREE_D });
     }),
     () => {
-      const f = atlas([...floraSprites(), ...tuftSprites()]);
-      send('flora', f.pix, {}, f.rects);
-      const c = critterSprites();
+      const fl = floraFor(season);
+      const f = atlas(fl.list);
+      send('flora', f.pix, {}, { rects: f.rects, sets: fl.sets, tufts: fl.tufts, patches: fl.patches, grass: fl.grass });
+      const c = critterSprites(season);
       const a = atlas(c.list);
       send('critters', a.pix, {}, { rects: a.rects, index: c.index });
     },
@@ -96,12 +101,15 @@ const groups: (() => void)[][] = [
   ],
 ];
 
-ctx.onmessage = (e: MessageEvent<number>) => {
+ctx.onmessage = (e: MessageEvent<{ group: number; season: Season }>) => {
   const times: number[] = [];
-  for (const job of groups[e.data] ?? []) {
+  season = e.data.season;
+  // every painter reads the palette as it paints: the season's colours first
+  setPalette(season);
+  for (const job of groups[e.data.group] ?? []) {
     const t = performance.now();
     job();
     times.push(Math.round(performance.now() - t));
   }
-  ctx.postMessage({ key: 'done', group: e.data, times });
+  ctx.postMessage({ key: 'done', group: e.data.group, times });
 };
