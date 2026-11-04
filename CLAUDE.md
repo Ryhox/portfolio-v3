@@ -32,7 +32,9 @@ old computer and the project discs, the cat's hollow (footer). Next.js 16, vanil
   onto the glass (`--k`, `fitPage` in the engine), tuning in through static. Once a disc has booted the TV, `full` is set
   and the camera dives into the glass (`leanIn`: a straight dolly, never a turn) until the glass covers the window and
   the page is exactly the window. Flips swap the project on the page (the video tunes in afresh; the drive swaps the
-  disc unseen). Leave leans back out, then the disc comes out. Inside, the scroll holds still.
+  disc unseen). Leave leans back out, then the disc comes out. Inside, the scroll holds still and the top bar hides.
+  A disc picked from a little off the computer glides the page there first (`toComputer` in `Work.tsx`), so the dive
+  comes right away; a pick you scrolled away from never dives in later on its own; clicking the glass dives in.
 - Pill mode (`src/scene/play.ts`, `world.ts`, `art/gear.ts`) is a secret: the only way in is typing `Enter.PillMode()` in
   the browser console (`src/site/pill.ts`; no paw offer at the cat, no nav link). On load the console prints the secret
   commands (`Enter.PillMode()`, `pill.cases()`, `pill.reset()`), never the points cheat `pill.points()`. From the console

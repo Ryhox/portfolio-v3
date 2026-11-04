@@ -453,6 +453,12 @@ html[data-full] .pin-screen {
   z-index: 9;
 }
 
+/* a disc that's in, but whose dive you missed: the glass takes you in */
+html:not([data-full]) .pin-screen[data-show='true'][data-tune='in'] {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
 .pin-screen::after {
   content: '';
   position: absolute;

@@ -2,6 +2,12 @@
 type Scroller = { scrollTo: (to: number | HTMLElement, o?: { duration?: number; offset?: number; immediate?: boolean }) => void } | null;
 let lenis: Scroller = null;
 export const setScroller = (l: Scroller) => (lenis = l);
+/** Glides to a scroll position, quickly (through the smooth scroll if there is one). */
+export function scrollToY(y: number, duration = 0.55) {
+  if (lenis) lenis.scrollTo(y, { duration });
+  else window.scrollTo({ top: y, behavior: 'smooth' });
+}
+
 export function scrollToEl(el: HTMLElement | null, offset = 0) {
   if (!el) return;
   if (lenis) lenis.scrollTo(el, { duration: 1.6, offset });

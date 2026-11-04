@@ -3,10 +3,36 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { projects } from '@/content/projects';
 import { forest } from '@/scene/store';
+import { scrollToY } from '@/site/scroll';
 import ScreenPage from './ScreenPage';
 
 const subscribe = forest.subscribe;
 const get = forest.get;
+
+/**
+ * A disc picked from a little off the computer (the discs can be picked a little either side of it) brings you the
+ * short way to where you stand at it, so the screen tunes in and you dive in right away, not when you next scroll.
+ */
+function toComputer() {
+  const work = document.querySelector<HTMLElement>('[data-stage="work"]');
+  const stick = work?.querySelector<HTMLElement>('.work-stick');
+  if (!work || !stick) return;
+  const a = work.offsetTop + 2;
+  const b = Math.max(a, work.offsetTop + work.offsetHeight - stick.offsetHeight - 2);
+  const y = window.scrollY;
+  const to = Math.min(b, Math.max(a, y));
+  if (Math.abs(to - y) > 1) scrollToY(to);
+}
+
+/**
+ * Into the screen from the monitor's glass, for a disc that's in but whose dive you weren't there for. (Not for the
+ * page's own buttons: Leave's click comes up through the glass too.)
+ */
+const diveIn = (e: React.MouseEvent) => {
+  if ((e.target as HTMLElement).closest('button, a')) return;
+  const st = forest.get();
+  if (!st.full && !st.playing && st.selected !== null && st.loaded === st.selected) forest.set({ full: true });
+};
 
 /**
  * The clearing. The discs and the computer are drawn by the forest; this is everything laid over them (moved into
@@ -57,13 +83,17 @@ export default function Work() {
             onPointerLeave={() => forest.get().hovered === i && forest.set({ hovered: null })}
             onFocus={() => forest.set({ hovered: i })}
             onBlur={() => forest.get().hovered === i && forest.set({ hovered: null })}
-            onClick={() => forest.set({ selected: state.selected === i ? null : i })}
+            onClick={() => {
+              const pick = state.selected === i ? null : i;
+              if (pick !== null) toComputer();
+              forest.set({ selected: pick });
+            }}
           ></button>
         ))}
       </div>
 
       {/* the monitor's glass: the project's page, scaled onto it (the forest dives into it to read it) */}
-      <div ref={glass} id="pin-screen" className="pin pin-screen" data-show="false">
+      <div ref={glass} id="pin-screen" className="pin pin-screen" data-show="false" onClick={diveIn}>
         <ScreenPage />
       </div>
     </section>

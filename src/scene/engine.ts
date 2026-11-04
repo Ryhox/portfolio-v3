@@ -1115,11 +1115,14 @@ export function createForest(o: Opts) {
       const tune = on ? 'in' : 'out';
       if (el.dataset.tune !== tune) el.dataset.tune = tune;
     }
+    // the dive comes once the page has tuned in, only if you're there for it: a pick you scrolled away from never
+    // dives in later out of the blue (the glass can be clicked to go in instead)
+    const diveAt = TV_ON * 0.35 + 1.05;
     if (st.full) grewFor = bootAt;
-    else if (glass && st.loaded === st.selected && grewFor !== bootAt && clock - bootAt > TV_ON * 0.35 + 1.05) {
+    else if (glass && st.loaded === st.selected && grewFor !== bootAt && clock - bootAt > diveAt) {
       grewFor = bootAt;
-      forest.set({ full: true });
-    }
+      if (clock - bootAt < diveAt + 1.2) forest.set({ full: true });
+    } else if (bootAt >= 0 && grewFor !== bootAt && clock - bootAt > diveAt + 1.2) grewFor = bootAt;
   }
 
   /**

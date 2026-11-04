@@ -762,6 +762,13 @@ html[data-play] .nav {
   display: none;
 }
 
+/* diving into the monitor's screen, the bar steps out of the way (it would sit over the dive) */
+html[data-full] .nav {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.25s ease, visibility 0s 0.25s;
+}
+
 .nav a,
 .nav button {
   pointer-events: auto;
