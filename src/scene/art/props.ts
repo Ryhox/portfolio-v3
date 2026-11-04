@@ -163,25 +163,52 @@ export function keyboardSprite(): Pix {
   return p;
 }
 
-/** The empty grey-green of the glass, with a cursor when `cursor` is on. */
-export function screenIdle(cursor: boolean): Pix {
+/** One speck of static: mostly dark, now and then bright, with a breath of green phosphor. `lift` brightens it. */
+function snow(n: number, level: number, lift = 0) {
+  const v = Math.min(1, 0.05 + n * n * level + lift);
+  const r = Math.round(16 + v * 214);
+  const g = Math.round(22 + v * 222);
+  const b = Math.round(18 + v * 206);
+  return (0xff000000 | (b << 16) | (g << 8) | r) >>> 0;
+}
+const ease = (f: number) => f * f * (3 - 2 * f);
+
+/**
+ * Static on the glass, like an old TV between channels: `seed` is which frame of it, `level` how bright, and a soft
+ * brighter bar rolls slowly down through it.
+ */
+export function screenStatic(seed: number, level = 1): Pix {
   const { w, h } = COMPUTER.screen;
   const p = new Pix(w, h);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) p.set(x, y, shade(PAL.computer.screen, 0.3 + (y / h) * 0.2));
-  if (cursor) for (let y = 3; y < 6; y++) for (let x = 3; x < 5; x++) p.set(x, y, PAL.computer.glass[0]);
+  const roll = ((seed * 0.7) % (h + 16)) - 8;
+  for (let y = 0; y < h; y++) {
+    const bar = Math.max(0, 1 - Math.abs(y - roll) / 7) * 0.1 * level;
+    for (let x = 0; x < w; x++) p.set(x, y, snow(hash2(x, y, seed), level, bar));
+  }
+  roundCorners(p);
+  return p;
+}
+
+/**
+ * Tuning in, `k` from 0 to 1: the waiting static (as bright as `from`) clears to `px`, speck by speck (the same order
+ * every time), with no flash. On the walk the project's page fades up over this through static of its own.
+ */
+export function screenTune(k: number, seed: number, px: Uint32Array, from: number): Pix {
+  const { w, h } = COMPUTER.screen;
+  const p = new Pix(w, h);
+  const level = from;
+  const clear = ease(clamp((k - 0.3) / 0.7));
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) p.set(x, y, hash2(x, y, 911) < clear ? px[y * w + x] : snow(hash2(x, y, seed), level));
   roundCorners(p);
   return p;
 }
 
 /** The glass showing a project picture, already shrunk to the glass and posterised. */
-export function screenPicture(px: Uint32Array, scan = 1): Pix {
+export function screenPicture(px: Uint32Array): Pix {
   const { w, h } = COMPUTER.screen;
   const p = new Pix(w, h);
-  const rows = Math.round(h * scan);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) p.set(x, y, y < rows ? px[y * w + x] : shade(PAL.computer.screen, 0.3));
-  }
-  if (scan < 1) for (let x = 0; x < w; x++) p.set(x, Math.min(h - 1, rows), PAL.computer.glass[1]);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) p.set(x, y, px[y * w + x]);
   roundCorners(p);
   return p;
 }
@@ -344,35 +371,6 @@ export function catSprite(blink: boolean): Pix {
       p.set(x, y, c);
     }
   }
-  return p;
-}
-
-/**
- * The cat holding out a paw with a pill on it, laid over the sitting cat (same grid, wider to the right).
- * Frame 0 is the paw on its way up, frame 1 held out. Spans of [row, x0, x1, colour key].
- */
-const PAW: [number, number, number, string][][] = [
-  [
-    [12, 21, 22, 'Q'], [12, 23, 24, 'W'], [13, 20, 22, 'P'], [13, 23, 25, 'w'], [14, 21, 22, 'R'], [14, 23, 24, 'v'],
-    [15, 19, 25, 'r'], [16, 17, 25, 'k'], [16, 17, 18, 'r'], [17, 16, 21, 'k'], [17, 16, 16, 'r'],
-  ],
-  [
-    [9, 24, 25, 'Q'], [9, 26, 27, 'W'], [10, 23, 25, 'P'], [10, 26, 28, 'w'], [11, 24, 25, 'R'], [11, 26, 27, 'v'],
-    [12, 22, 28, 'r'], [13, 20, 28, 'k'], [13, 20, 21, 'r'], [14, 18, 25, 'k'], [14, 18, 19, 'r'], [15, 16, 22, 'k'], [15, 16, 17, 'r'], [16, 15, 19, 'k'],
-    [13, 28, 28, 'p'],
-  ],
-];
-export const PAW_W = 32;
-/** Where the pill lies on the held-out paw, in the cat's pixels. */
-export const PILL_AT = { x: 25.5, y: 9 };
-
-export function catPawSprite(frame: number): Pix {
-  const p = new Pix(PAW_W, CAT_SIZE.h);
-  const cols: Record<string, number> = {
-    k: PAL.hollow.cat[0], r: PAL.hollow.cat[2], p: hex('#5a3434'),
-    P: hex('#b8392c'), Q: hex('#d9705a'), R: hex('#7c2620'), w: hex('#e9e1d0'), W: hex('#fbf6e8'), v: hex('#b9ac8e'),
-  };
-  for (const [y, x0, x1, c] of PAW[frame]) for (let x = x0; x <= x1; x++) p.set(x, y, cols[c]);
   return p;
 }
 
@@ -546,290 +544,4 @@ export function shaftSprite(): Pix {
     }
   }
   return p;
-}
-
-/** What's written on the notice board, and the fonts to write it in (font-family strings). */
-export type NoticeText = {
-  title: string;
-  kicker?: string;
-  body: string;
-  stack?: string;
-  links: string[];
-  /** which link is under the pointer, and which is pressed */
-  hover: number | null;
-  press: number | null;
-  fonts: { display: string; pixel: string };
-};
-type Rect = { x: number; y: number; w: number; h: number };
-/** The old notice board in the clearing: where its paper and its painted buttons are, and the foot it stands on. */
-export type Notice = { pix: Pix; ax: number; ay: number; paper: Rect; links: Rect[] };
-
-const INK = { title: hex('#36261b'), kicker: hex('#55652a'), body: hex('#43331f'), soft: hex('#776651') };
-const BTN = { outline: hex('#1d1612'), body: hex('#fbf6e9'), dark: hex('#e4d9bf'), hover: hex('#e9f0cf'), hoverDark: hex('#cbd8a6'), text: hex('#1d1612') };
-const MOSS = { dark: hex('#3f6a2e'), mid: hex('#5e8c3a'), light: hex('#8ab452'), top: hex('#b6d36e'), pink: hex('#e47f98'), white: hex('#fff6e6'), yellow: hex('#f2c24a') };
-let scratch: CanvasRenderingContext2D | null = null;
-
-/**
- * Writes text into a sprite in true pixels: each line is drawn by the browser at the sprite's own size and
- * kept only where it's solidly inked, so letters come out crisp, never smudged. Returns the lines' width.
- */
-function letter(p: Pix, x: number, y: number, text: string, font: string, color: number) {
-  scratch ??= document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
-  const g = scratch;
-  g.font = font;
-  const w = Math.ceil(g.measureText(text).width) + 2;
-  const h = 24;
-  if (g.canvas.width < w || g.canvas.height < h) {
-    g.canvas.width = Math.max(g.canvas.width, w);
-    g.canvas.height = h;
-  }
-  g.clearRect(0, 0, g.canvas.width, h);
-  g.font = font;
-  g.textBaseline = 'top';
-  g.fillStyle = '#000';
-  g.fillText(text, 1, 1);
-  const d = g.getImageData(0, 0, w, h).data;
-  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) if (d[(j * w + i) * 4 + 3] > 120) p.set(x + i - 1, y + j - 1, color);
-  return w - 2;
-}
-
-/** Breaks text into lines no wider than `max` pixels in the given font. */
-function wrap(text: string, font: string, max: number) {
-  scratch ??= document.createElement('canvas').getContext('2d', { willReadFrequently: true })!;
-  scratch.font = font;
-  const lines: string[] = [];
-  let line = '';
-  for (const word of text.split(' ')) {
-    const next = line ? `${line} ${word}` : word;
-    if (line && scratch.measureText(next).width > max) {
-      lines.push(line);
-      line = word;
-    } else line = next;
-  }
-  if (line) lines.push(line);
-  return lines;
-}
-
-/**
- * Lays the words out on the paper, as large as they fit: a pixel serif title, then the rest in pixel type,
- * and a row of little pixel buttons for the links. Returns where the buttons went, or null if it doesn't fit.
- */
-function writeNotice(p: Pix, paper: Rect, text: NoticeText, big: boolean): Rect[] | null {
-  const m = 4;
-  const x0 = paper.x + m;
-  const max = paper.w - m * 2 - 3;
-  const bottom = paper.y + paper.h - 4;
-  const ts = big ? 16 : 14;
-  const bs = big ? 12 : 11;
-  const titleFont = `600 ${ts}px ${text.fonts.display}`;
-  const font = `500 ${bs}px ${text.fonts.pixel}`;
-  const parts: { lines: string[]; font: string; color: number; lh: number; after: number }[] = [
-    { lines: wrap(text.title, titleFont, max), font: titleFont, color: INK.title, lh: ts + 1, after: 1 },
-  ];
-  if (text.kicker) parts.push({ lines: wrap(text.kicker, font, max), font, color: INK.kicker, lh: bs + 1, after: 2 });
-  parts.push({ lines: wrap(text.body, font, max), font, color: INK.body, lh: bs, after: 2 });
-  if (text.stack) parts.push({ lines: wrap(text.stack, font, max), font, color: INK.soft, lh: bs, after: 3 });
-  const btnH = bs + 5;
-  const height = parts.reduce((s, q) => s + q.lines.length * q.lh + q.after, 0) + (text.links.length ? btnH : 0);
-  if (paper.y + m + height > bottom) return null;
-  let y = paper.y + m;
-  for (const q of parts) {
-    for (const line of q.lines) {
-      letter(p, x0, y, line, q.font, q.color);
-      y += q.lh;
-    }
-    y += q.after;
-  }
-  // the links: little buttons of pale paper with an ink rim and ink letters, like the page's own; under the
-  // pointer they go a pale green and grow moss along the top with a flower or two in it; pressed in when clicked
-  const rects: Rect[] = [];
-  let x = x0;
-  text.links.forEach((label, i) => {
-    scratch!.font = font;
-    const w = Math.ceil(scratch!.measureText(label).width) + 10;
-    const down = text.press === i ? 1 : 0;
-    const by = y + down;
-    const hot = text.hover === i;
-    for (let j = 0; j < btnH; j++) {
-      for (let k = 0; k < w; k++) {
-        const corner = (j === 0 || j === btnH - 1) && (k === 0 || k === w - 1);
-        if (corner) continue;
-        const rim = j === 0 || j === btnH - 1 || k === 0 || k === w - 1;
-        const tone = rim ? BTN.outline : j >= btnH - 2 ? (hot ? BTN.hoverDark : BTN.dark) : hot ? BTN.hover : BTN.body;
-        p.set(x + k, by + j, tone);
-      }
-    }
-    if (!down) for (let k = 1; k < w - 1; k++) p.set(x + k, by + btnH, BTN.outline);
-    letter(p, x + 5, by + 2, label, font, BTN.text);
-    if (hot) {
-      // moss over the top rim, a pixel or two deep, with a pink flower and a white one in it
-      for (let k = 0; k < w; k++) {
-        const deep = 1 + (((k * 7 + i * 3) % 5) > 2 ? 1 : 0);
-        for (let d = 0; d < deep; d++) p.set(x + k, by - d, d === deep - 1 ? (k % 3 ? MOSS.light : MOSS.top) : MOSS.mid);
-        if (k % 4 === 1) p.set(x + k, by + 1, MOSS.dark);
-      }
-      for (const [at, petal] of [[0.25, MOSS.pink], [0.72, MOSS.white]] as const) {
-        const fx = x + Math.round(w * at);
-        p.set(fx, by - 3, MOSS.yellow);
-        p.set(fx - 1, by - 3, petal);
-        p.set(fx + 1, by - 3, petal);
-        p.set(fx, by - 4, petal);
-        p.set(fx, by - 2, petal);
-      }
-    }
-    rects.push({ x, y, w, h: btnH + 1 });
-    x += w + 4;
-  });
-  return rects;
-}
-
-/**
- * The old notice board: a panel of weathered planks `bw` × `bh` under a little shingled roof, on round posts
- * `legs` tall, with a yellowed paper pinned in the middle and `text` written right on it in pixels, so the words
- * take the board's light and break with it. It stands right of the middle, so its left edge shows its thickness.
- * Moss sits thick on the roof and the ledges and creeps up the posts; ivy hangs down, grass and caps at its feet.
- */
-export function noticeSprite(bw: number, bh: number, legs: number, text: NoticeText): Notice {
-  const over = 6;
-  const W = bw + over * 2;
-  // room above for the moss heaped on the cap rail
-  const py0 = 7;
-  const py1 = py0 + bh;
-  const H = py1 + legs + 1;
-  const p = new Pix(W, H);
-  const wood = ramp('#211a15', '#31271f', '#45382c', '#5a4a3a', '#715e4a', '#8a765e', '#a28f75');
-  const paper = ramp('#8c7f63', '#b9aa86', '#d8caa6', '#ece0c1', '#f6edd4');
-  // moss cushions, or in winter drifts of snow in the same places
-  const moss = PAL.snowy ? PAL.snow.slice(2) : PAL.cushion;
-  const px0 = over;
-  const px1 = over + bw;
-  const at = (r: Ramp, i: number) => r[Math.max(0, Math.min(r.length - 1, i))];
-  const grain = (x: number, y: number, s: number) => (hash2(x, y >> 1, s) < 0.1 ? -1 : hash2(x, y, s + 3) < 0.04 ? 1 : 0);
-  const ground = H - 1;
-
-  // the posts, round: lit on the left, falling into shade on the right, a soft shade on the grass round their feet
-  const postW = 7;
-  const posts = [px0 + Math.round(bw * 0.15), px1 - Math.round(bw * 0.15) - postW];
-  for (let x = posts[0] - 8; x < posts[1] + postW + 10; x++) {
-    const e = Math.abs(x - (posts[0] + posts[1] + postW) / 2) / ((posts[1] - posts[0]) / 2 + 12);
-    for (let y = ground - 2 + Math.round(e * 2); y <= ground; y++) p.set(x, y, PAL.clearing.grass[0]);
-  }
-  const tones = [2, 5, 4, 4, 3, 2, 1];
-  for (const x0 of posts) for (let y = py0 + 2; y <= ground; y++) for (let i = 0; i < postW; i++) p.set(x0 + i, y, at(wood, tones[i] + grain(x0 + i, y, 5)));
-
-  // the panel's left edge: its thickness, receding towards the middle of the view
-  for (let i = 1; i <= 3; i++) for (let y = py0 + Math.ceil(i * 0.6); y < py1 - Math.ceil(i * 0.4); y++) p.set(px0 - i, y, at(wood, 1 + grain(px0 - i, y, 6)));
-  // the panel: a frame of four boards round a backing of planks, set back in its shade
-  for (let y = py0; y < py1; y++) {
-    for (let x = px0; x < px1; x++) {
-      const fl = x - px0;
-      const fr = px1 - 1 - x;
-      const ft = y - py0;
-      const fb = py1 - 1 - y;
-      let t: number;
-      if (ft < 5 && ft <= fl && ft <= fr) t = ft === 4 ? 4 : 5;
-      else if (fb < 5 && fb <= fl && fb <= fr) t = fb === 4 ? 3 : 2;
-      else if (fl < 5) t = fl === 0 ? 3 : 4;
-      else if (fr < 5) t = fr === 0 ? 2 : 3;
-      else {
-        // the backing, its plank seams every seven rows, shadowed under the top board and the left one
-        t = (ft - 5) % 7 === 0 ? 1 : 2;
-        if (ft === 5 || fl === 5) t = 1;
-        if (fr === 5 || fb === 5) t = 3;
-      }
-      p.set(x, y, at(wood, t + grain(x, y, 7)));
-    }
-  }
-  // a cap rail along the top, a little proud of the panel, lit on top
-  for (let y = py0 - 2; y < py0 + 2; y++) for (let x = px0 - 3; x < px1 + 3; x++) p.set(x, y, at(wood, (y === py0 - 2 ? 6 : y === py0 + 1 ? 2 : 4) + grain(x, y, 8)));
-  // nail heads at the frame's corners
-  for (const [nx, ny] of [[px0 + 2, py0 + 3], [px1 - 3, py0 + 3], [px0 + 2, py1 - 3], [px1 - 3, py1 - 3]]) {
-    p.set(nx, ny, wood[0]);
-    p.set(nx - 1, ny - 1, wood[6]);
-  }
-
-  // an older note peeking out from behind, low on the left
-  const paperX = px0 + 9;
-  const paperY = py0 + 8;
-  const paperW = bw - 18;
-  const paperH = bh - 17;
-  for (let y = 0; y < 14; y++) for (let x = 0; x < 20; x++) {
-    p.set(paperX - 3 + x + Math.floor(y / 3), paperY + paperH - 9 + y, at(paper, 2 - (y > 11 ? 1 : 0) + (hash2(x, y, 41) < 0.08 ? -1 : 0)));
-  }
-  // the paper's shadow on the backing, then the paper, yellowing towards its edges, with a dog-ear
-  for (let y = paperY + 1; y <= paperY + paperH; y++) for (let x = paperX + 1; x <= paperX + paperW; x++) p.set(x, y, wood[0]);
-  const ear = 6;
-  for (let y = paperY; y < paperY + paperH; y++) {
-    for (let x = paperX; x < paperX + paperW; x++) {
-      const fx = x - paperX;
-      const fy = y - paperY;
-      if (paperW - 1 - fx + fy < ear) continue;
-      const edge = Math.min(fx, fy, paperW - 1 - fx, paperH - 1 - fy);
-      let t = edge === 0 ? 2 : edge < 3 ? 3 : 4;
-      if (fy === paperH - 1) t = 1;
-      if (edge > 2 && hash2(x, y, 43) < 0.012) t = 3;
-      p.set(x, y, paper[t]);
-    }
-  }
-  // the folded corner, its underside darker
-  for (let j = 0; j < ear; j++) for (let i = 0; i < ear - j; i++) p.set(paperX + paperW - ear + i + j, paperY + j, paper[i === ear - j - 1 ? 1 : 2]);
-  // a red pin at the top
-  const pinX = paperX + Math.round(paperW / 2);
-  p.set(pinX, paperY + 1, hex('#b8392c'));
-  p.set(pinX + 1, paperY + 1, hex('#7c2620'));
-  p.set(pinX, paperY, hex('#e8786a'));
-  p.set(pinX + 1, paperY + 2, wood[0]);
-
-  // moss: heaped thick along the cap rail and dripping over it, on the bottom ledge, creeping up the posts
-  const rnd = mulberry(611);
-  for (let i = 0; i < 9; i++) mossCushion(p, px0 - 2 + rnd() * (bw + 4), py0 - 2, 7 + rnd() * 10, 3 + rnd() * 2.5, moss, 620 + i);
-  for (let i = 0; i < 4; i++) mossCushion(p, px0 + rnd() * bw, py1, 6 + rnd() * 9, 2 + rnd() * 1.5, moss, 660 + i);
-  mossPatch(p, px0 + 3, py1 - 7, 3, 7, moss, 672, true);
-  mossPatch(p, px1 - 3, py0 + 12, 2.5, 6, moss, 673, true);
-  mossPatch(p, px0 + 2, py0 + 6, 2.5, 4, moss, 674, true);
-  for (const x0 of posts) {
-    mossPatch(p, x0 + 2, ground - 4, 3, Math.min(10, legs * 0.4 + 2), moss, 680 + x0, true);
-    mossPatch(p, x0 + 1, py1 + legs * 0.45, 2, 3, moss, 690 + x0, true);
-  }
-  // ivy hanging off the cap rail and down the sides of the panel
-  vine(p, px0 + 2, py0 + 1, Math.round(bh * 0.7 + legs * 0.4), PAL.vine, 701);
-  vine(p, px1 - 2, py0 + 1, Math.round(bh * 0.45), PAL.vine, 702);
-
-  // at its feet: grass, a few caps and a flower or two
-  const g = PAL.clearing.grass;
-  const sun = PAL.clearing.sun;
-  for (let i = 0; i < 18; i++) {
-    const x = posts[0] - 6 + rnd() * (posts[1] - posts[0] + postW + 12);
-    tuft(p, x, ground - rnd(), 3 + rnd() * 6, PAL.snowy ? PAL.straw : rnd() < 0.4 ? sun : g, 720 + i, 0.55);
-  }
-  if (SEASON === 'summer' || SEASON === 'autumn') {
-    mushroom(p, posts[1] + postW + 2, ground, 5, PAL.hollow.cap, PAL.hollow.stem, 741);
-    mushroom(p, posts[1] + postW + 6, ground, 3, PAL.hollow.cap, PAL.hollow.stem, 742);
-    mushroom(p, posts[0] - 3, ground, 4, PAL.hollow.cap, PAL.hollow.stem, 743);
-  }
-  // a flower or two at its feet, when there are any
-  const feet = SEASON === 'spring' ? ['#a283cf', '#f2e39a', '#f1ece2'] : SEASON === 'summer' ? ['#ece6d4', '#e7b73c', '#a8443c'] : SEASON === 'autumn' ? ['#cdaee0'] : [];
-  feet.forEach((fc, i) => {
-    const fx = [posts[0] + 10, posts[1] - 6, posts[0] - 6][i];
-    p.set(fx, ground - 5, hex(fc));
-    p.set(fx, ground - 4, PAL.clearing.leaf[3]);
-  });
-  p.outline(0.6, 0.88);
-  if (PAL.snowy) snowOn(p, PAL.snow, 799, 0.8);
-
-  // the words, written last and right on the paper: at full size, without the stack line if need be, smaller
-  // only after that, and only if even that won't fit is the description cut short with an ellipsis
-  const paperRect = { x: paperX, y: paperY, w: paperW, h: paperH };
-  let links: Rect[] | null = null;
-  for (let words = text.body.split(' '); !links && words.length; words = words.slice(0, -1)) {
-    const body = words.length === text.body.split(' ').length ? text.body : `${words.join(' ')}…`;
-    const scratchPix = new Pix(W, H);
-    scratchPix.data.set(p.data);
-    const t = { ...text, body };
-    // the pixel type only stays whole at its full size, so the stack line goes before the type gets smaller
-    const bare = { ...t, stack: undefined };
-    links = writeNotice(scratchPix, paperRect, t, true) ?? writeNotice(scratchPix, paperRect, bare, true) ?? writeNotice(scratchPix, paperRect, bare, false);
-    if (links) p.data.set(scratchPix.data);
-  }
-  return { pix: p, ax: Math.round(W / 2), ay: H, paper: paperRect, links: links ?? [] };
 }

@@ -1,10 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useSyncExternalStore } from 'react';
-import { forest } from '@/scene/store';
 import { scrollToEl } from '@/site/scroll';
 import { sfx } from '@/sound/sfx';
-import { lockPointer } from '../Pill';
 
 const PAGES = [
   { label: 'About', target: '#hello' },
@@ -83,26 +81,6 @@ export default function Nav() {
             </a>
           </li>
         ))}
-        <li>
-          <a
-            href="#pill"
-            className="nav-pill"
-            onClick={(e) => {
-              e.preventDefault();
-              // straight into the wood (once it's there): the click is what lets the mouse be taken
-              if (document.documentElement.dataset.forest !== 'ready') return;
-              sfx.play('tick');
-              forest.set({ playing: true, paused: false });
-              lockPointer();
-            }}
-          >
-            <span className="nav-long">Take the pill</span>
-            <span className="nav-short">The pill</span>
-            <svg viewBox="0 0 60 8" preserveAspectRatio="none" aria-hidden="true">
-              <path pathLength={1} d="M1 5c6-4 10 3 16-1s10 3 16-1 10 3 16-1 8 2 10 0" />
-            </svg>
-          </a>
-        </li>
       </ul>
       <button
         type="button"

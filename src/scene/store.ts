@@ -7,6 +7,8 @@ export type ForestState = {
   hovered: number | null;
   /** The disc that is actually in the drive (after its little trip). */
   loaded: number | null;
+  /** The monitor's screen blown up to fill the window, showing the picked project (prev/next, its links, Leave). */
+  full: boolean;
   /** Pill mode: walking about in the wood. Paused while the mouse is let go (Esc). */
   playing: boolean;
   paused: boolean;
@@ -20,7 +22,7 @@ export type ForestState = {
   aiming: boolean;
 };
 
-let state: ForestState = { selected: null, hovered: null, loaded: null, playing: false, paused: false, prompt: null, panel: null, weapon: 'rifle', ammo: { rifle: 5, shotgun: 6 }, aiming: false };
+let state: ForestState = { selected: null, hovered: null, loaded: null, full: false, playing: false, paused: false, prompt: null, panel: null, weapon: 'rifle', ammo: { rifle: 5, shotgun: 6 }, aiming: false };
 const listeners = new Set<() => void>();
 
 export const forest = {

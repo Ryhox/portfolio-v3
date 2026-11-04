@@ -49,7 +49,7 @@ export default function Intro() {
     const frame = (now: number) => {
       raf = requestAnimationFrame(frame);
       if (!visible) return;
-      const p = progress(s);
+      const p = progress(s, stick.current?.offsetHeight || window.innerHeight);
       // the evening floods out of the middle like ink, as the name goes
       const flood = easeInOut(clamp01((p - 0.42) / 0.55));
       word?.render(p, now, flood);

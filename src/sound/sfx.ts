@@ -579,7 +579,7 @@ const SOUNDS: Record<string, Fn> = {
     for (let i = 0; i < 12; i++) this.tone(d, t + Math.random() * 0.25, 3000 + Math.random() * 5000, 2500, 0.15, 'sine', 0.035);
     this.hiss(d, t, 0.3, 'highpass', 4000, 3000, 0.1);
   },
-  /** The notice board bursting: the crack of the planks, splinters, the boards knocking down onto the grass. */
+  /** Wood bursting (Mira's barrel): the crack of the planks, splinters, the boards knocking down onto the grass. */
   board(t, o) {
     const d = this.dest({ ...o, gain: (o.gain ?? 1) * 1.3 }, 0.6);
     // the crack: sharp and bright, then the crunch of wood giving way
@@ -603,13 +603,6 @@ const SOUNDS: Record<string, Fn> = {
     const f = 260 + Math.random() * 120;
     this.tone(d, t, f * r, f * 1.35 * r, 0.22, 'sawtooth', 0.025, 0.04);
     this.hiss(d, t, 0.2, 'bandpass', 900, 1300, 0.03, 6, 0.05);
-  },
-  /** A new board pulling itself up out of the ground: earth giving, a creak of wood. */
-  boardUp(t, o) {
-    const d = this.dest(o, 0.3);
-    this.hiss(d, t, 0.6, 'lowpass', 500, 1500, 0.12, 0.7, 0.2);
-    this.tone(d, t + 0.25, 240, 330, 0.35, 'sawtooth', 0.025, 0.08);
-    this.tone(d, t + 0.75, 140, 70, 0.12, 'sine', 0.2);
   },
   // --- Mira's shop and the cases ---
   /** Coins on the counter. */

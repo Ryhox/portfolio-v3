@@ -4,7 +4,7 @@ import { useSyncExternalStore } from 'react';
 import { settings } from '@/scene/settings';
 import { forest } from '@/scene/store';
 import { wallet } from '@/scene/wallet';
-import { lockPointer } from '../Pill';
+import { lockPointer } from '@/site/pill';
 
 export const useForest = () => useSyncExternalStore(forest.subscribe, forest.get, forest.get);
 export const useWallet = () => useSyncExternalStore(wallet.subscribe, wallet.get, wallet.get);

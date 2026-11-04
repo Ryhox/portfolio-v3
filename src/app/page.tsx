@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import Forest from '@/components/Forest';
 import Loader from '@/components/Loader';
-import Pill from '@/components/Pill';
 import PlayUI from '@/components/PlayUI';
 import Socials from '@/components/Socials';
 import Work from '@/components/Work';
@@ -35,7 +34,6 @@ export default function Home() {
         <div className="walk walk-out" aria-hidden="true" />
       </main>
       <footer className="end" data-stage="end">
-        <Pill />
         <div className="end-inner">
           <p className="end-title">Thanks for wandering in.</p>
           <a className="end-mail" href={`mailto:${site.email}`}>

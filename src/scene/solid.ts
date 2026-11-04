@@ -1,7 +1,7 @@
 /**
  * Pill mode's real 3D things, built from the same paint as the walk's sprites: trees with round trunks and
  * crowns of leaf clumps hung in 3D (each clump a little card turned to you, the way leafy trees are built in
- * most games), the stump, the computer and the notice board pushed out of their sprites into solid slabs,
+ * most games), the stump and the computer pushed out of their sprites into solid slabs,
  * the keyboard and the floppies as flat boxes. All the shapes here, none of the lighting.
  */
 import * as THREE from 'three';

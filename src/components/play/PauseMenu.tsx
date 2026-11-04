@@ -4,7 +4,7 @@ import { useState, useSyncExternalStore, type ReactNode } from 'react';
 import { CROSS_COLORS, settings, type CrossColor, type Settings } from '@/scene/settings';
 import { wallet } from '@/scene/wallet';
 import { sfx } from '@/sound/sfx';
-import { lockPointer } from '../Pill';
+import { lockPointer } from '@/site/pill';
 import { Loop, Paper, Squiggle, Tick } from './Doodle';
 import { Points } from './Panel';
 import SkinGrid from './SkinGrid';

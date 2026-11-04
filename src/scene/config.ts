@@ -33,7 +33,7 @@ export const CLEARING = {
   computer: { x: 0, z: -75 },
   groundZ: -76,
   backdropZ: -84,
-  /** Where the path leaves the clearing, behind the text on wide screens. */
+  /** Where the path leaves the clearing, off to the right of the computer. */
   exitX: 4.35,
   shaftZ: -74.9,
 };

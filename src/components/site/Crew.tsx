@@ -4,40 +4,39 @@ import { useEffect, useRef, useState } from 'react';
 import { hash2 } from '@/scene/pix';
 import { bodySize, drawLooseEye, drawMate, flight, loadBody, specOf, type Body, type Logo, type Pose, type Spec } from '@/site/crew';
 import { sfx } from '@/sound/sfx';
+import { FlourishPaths } from './Flourish';
 
 type Tool = { name: string; logo: Logo; what: string };
 type Trade = { title: string; line: string; crew: Tool[] };
-/** The five trades, and the tools each is done with: the crew that turns up for it, and what each one does. */
+/** The trades, and the tools each is done with: the crew that turns up for it, and what each one does. */
 const TRADES: Trade[] = [
   {
-    title: '3D worlds',
-    line: 'Explorable, real-time scenes that run in a browser tab.',
+    title: '3D & motion',
+    line: 'Real-time 3D in a browser tab, and pages that move like they mean it.',
     crew: [
       { name: 'Three.js', logo: 'three', what: 'The 3D engine of the web: scenes, lights and cameras, drawn with WebGL.' },
-      { name: 'React Three Fiber', logo: 'r3f', what: 'Three.js written as React components, so a 3D scene is built like a page.' },
-      { name: 'GLSL', logo: 'glsl', what: 'The shader language: tiny programs that colour every pixel on the GPU.' },
-      { name: 'WebGL', logo: 'webgl', what: 'The browser’s door to the graphics card, under all of the 3D here.' },
+      { name: 'GSAP', logo: 'gsap', what: 'Animation timelines and scroll choreography, to the frame.' },
+      { name: 'Lenis', logo: 'lenis', what: 'Smooth scrolling, so a page glides instead of jumping.' },
     ],
   },
   {
     title: 'Everyday apps',
     line: 'Apps people open every day, on the web and on phones.',
     crew: [
-      { name: 'Next.js', logo: 'next', what: 'The React framework this site runs on: routing, rendering, speed.' },
-      { name: 'React', logo: 'react', what: 'Builds interfaces out of small components that update themselves.' },
+      { name: 'JavaScript', logo: 'js', what: 'The language of the web, running in every browser there is.' },
       { name: 'TypeScript', logo: 'ts', what: 'JavaScript with types, so mistakes show up before anyone else sees them.' },
+      { name: 'React', logo: 'react', what: 'Builds interfaces out of small components that update themselves.' },
+      { name: 'Next.js', logo: 'next', what: 'The React framework this site runs on: routing, rendering, speed.' },
       { name: 'Flutter', logo: 'flutter', what: 'One codebase for real apps on iPhone, Android and the web.' },
     ],
   },
   {
-    title: 'AI & backends',
-    line: 'Private AI on your own machine, and the servers behind the apps.',
+    title: 'Servers & data',
+    line: 'The servers and the databases behind the apps.',
     crew: [
-      { name: 'Ollama', logo: 'ollama', what: 'Runs large language models on your own machine, so nothing leaves it.' },
       { name: 'Node.js', logo: 'node', what: 'JavaScript on the server: APIs, bots and the tools behind the apps.' },
       { name: 'PostgreSQL', logo: 'postgres', what: 'A rock-solid database for data that has to be right.' },
       { name: 'MySQL', logo: 'mysql', what: 'The classic open-source SQL database, quick and everywhere.' },
-      { name: 'JavaScript', logo: 'js', what: 'The language of the web, running in every browser there is.' },
     ],
   },
   {
@@ -45,20 +44,8 @@ const TRADES: Trade[] = [
     line: 'Minecraft mods, and code for things that don’t live in a browser.',
     crew: [
       { name: 'Java', logo: 'java', what: 'What Minecraft is made of, and the mods I write for it.' },
-      { name: 'Kotlin', logo: 'kotlin', what: 'A modern, concise language for the JVM and Android.' },
       { name: 'C#', logo: 'csharp', what: 'Microsoft’s language, for Unity games and Windows tools.' },
       { name: 'Arduino', logo: 'arduino', what: 'Little boards that let code switch, sense and move real things.' },
-      { name: 'Fabric', logo: 'fabric', what: 'A light, fast toolchain for modding Minecraft.' },
-    ],
-  },
-  {
-    title: 'Motion & feel',
-    line: 'Scroll choreography, physics and tiny interactions.',
-    crew: [
-      { name: 'GSAP', logo: 'gsap', what: 'Animation timelines and scroll choreography, to the frame.' },
-      { name: 'Lenis', logo: 'lenis', what: 'Smooth scrolling, so a page glides instead of jumping.' },
-      { name: 'Shaders', logo: 'shaders', what: 'GPU programs for light, water, fog and every glint on screen.' },
-      { name: 'Physics', logo: 'physics', what: 'Gravity, bounces and collisions, so things feel like things.' },
     ],
   },
 ];
@@ -157,15 +144,7 @@ function RibbonRule() {
       {w > 0 && (
         <>
           <g className="rule-heart" transform={`translate(${ox.toFixed(1)} ${oy}) scale(${k.toFixed(3)})`}>
-            <path pathLength={1} d="M178 22c-14 0-22-9-34-9-16 0-20 14-36 14-18 0-24-12-44-12-14 0-22 6-34 6-10 0-14-6-24-6M178 22c-6-8-14-10-20-6-5 4-2 11 4 10 4-1 4-6 0-7" />
-            <path pathLength={1} d="M182 22c14 0 22-9 34-9 16 0 20 14 36 14 18 0 24-12 44-12 14 0 22 6 34 6 10 0 14-6 24-6M182 22c6-8 14-10 20-6 5 4 2 11-4 10-4-1-4-6 0-7" />
-            <path pathLength={1} d="M112 21c4-7 11-9 16-6-4 5-11 7-16 6zM248 21c-4-7-11-9-16-6 4 5 11 7 16 6zM60 16c3-6 9-8 13-5-3 4-9 6-13 5zM300 16c-3-6-9-8-13-5 3 4 9 6 13 5z" />
-            <g className="rule-dots">
-              <circle cx="180" cy="22" r="2.6" />
-              <circle cx="173" cy="10" r="1.4" />
-              <circle cx="187" cy="10" r="1.4" />
-              <circle cx="180" cy="33" r="1.2" />
-            </g>
+            <FlourishPaths />
           </g>
           <g className="rule-ribbons">
             <path pathLength={1} d={left!.d} />
@@ -308,6 +287,8 @@ export default function Crew() {
     const tick = () => {
       raf = requestAnimationFrame(tick);
       const vh = window.innerHeight;
+      // the stay is measured by the stage (lvh, steady), not the window, which grows as a phone's bar slides away
+      const stick = s.querySelector<HTMLElement>('.crew-stick')?.offsetHeight || vh;
       const top = s.getBoundingClientRect().top;
       const intro = 0;
       const isOpen = top < vh * 0.18;
@@ -315,7 +296,7 @@ export default function Crew() {
         wasOpen = isOpen;
         setOpen(isOpen);
       }
-      const span = Math.max(1, s.offsetHeight - vh - intro);
+      const span = Math.max(1, s.offsetHeight - stick - intro);
       const pp = Math.max(0, Math.min(1, (-top - intro) / span));
       const i = Math.min(TRADES.length - 1, Math.floor(pp * TRADES.length * 0.999));
       if (i !== idxRef.current) {

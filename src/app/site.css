@@ -4,6 +4,9 @@
    glow. (The crew's eyes, arms and legs are pixel art; the wood further down is all pixels.)
    ====================================================================================================== */
 :root {
+  /* how far the full-screen stages reach past the screen: iOS shows the page behind its floating bar, further down
+     than even lvh, so a stage only as tall as the screen let the next section show under the bar */
+  --bleed: 120px;
   --paper: #efe8d4;
   --paper-2: #e6ddc4;
   --paper-lo: #c9bd9a;
@@ -46,10 +49,16 @@ html[data-season='winter'] {
   background: #ffffff;
 }
 
+/* the full-screen stages reach past the screen with a phone's bar slid away (lvh, and --bleed more for what iOS shows
+   behind its floating bar), so the next section never shows under them; what's on them keeps to the screen with the
+   bar showing (svh), so nothing hides behind it */
 .landing-stick {
   position: sticky;
   top: 0;
-  height: 100svh;
+  height: calc(100vh + var(--bleed));
+  height: calc(100lvh + var(--bleed));
+  padding-bottom: var(--bleed);
+  padding-bottom: calc(100lvh - 100svh + var(--bleed));
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -59,6 +68,8 @@ html[data-season='winter'] {
 .landing-canvas {
   position: absolute;
   inset: 0;
+  bottom: var(--bleed);
+  bottom: calc(100lvh - 100svh + var(--bleed));
   z-index: 2;
   display: block;
   width: 100%;
@@ -138,17 +149,19 @@ html[data-fx='on'] [data-reveal] {
   transform-origin: 0 50%;
 }
 
-/* who: the evening that flooded out of the name */
+/* who: the evening that flooded out of the name. It has a stay: the words hold still a while (sticky) before the
+   crew's paper comes up over them, so there's time to read */
 .about {
   --bg: var(--evening);
   --ink: #f1ebd6;
-  min-height: 100svh;
+  min-height: 160svh;
   overflow: clip;
   padding: clamp(90px, 17svh, 190px) clamp(20px, 6vw, 110px) calc(clamp(70px, 12svh, 130px) + 140px);
 }
 
 .about-inner {
-  position: relative;
+  position: sticky;
+  top: clamp(90px, 17svh, 190px);
   z-index: 1;
   max-width: 1360px;
   margin: 0 auto;
@@ -372,7 +385,8 @@ html[data-fx='on'] [data-reveal] {
 .crew-stick {
   position: sticky;
   top: 0;
-  height: 100svh;
+  height: calc(100vh + var(--bleed));
+  height: calc(100lvh + var(--bleed));
   overflow: hidden;
 }
 
@@ -380,6 +394,8 @@ html[data-fx='on'] [data-reveal] {
 .crew-stage {
   position: absolute;
   inset: 0;
+  bottom: var(--bleed);
+  bottom: calc(100lvh - 100svh + var(--bleed));
   touch-action: pan-y;
 }
 
@@ -652,10 +668,12 @@ html[data-fx='on'] [data-reveal] {
   margin-top: -100svh;
 }
 
+/* (the drawing covers the whole lvh stage: it lines up with the wood behind it, which is lvh tall too) */
 .dive-stick {
   position: sticky;
   top: 0;
-  height: 100svh;
+  height: 100vh;
+  height: 100lvh;
   overflow: hidden;
 }
 
@@ -885,18 +903,7 @@ html[data-play] .nav {
   rotate: -6deg;
 }
 
-/* the way straight into the wood: same as the pages, a short label on phones */
-.nav-pill .nav-short {
-  display: none;
-}
-
 @media (max-width: 560px) {
-  .nav-pill .nav-long {
-    display: none;
-  }
-  .nav-pill .nav-short {
-    display: inline;
-  }
   .nav-logo {
     font-size: 1.25rem;
   }

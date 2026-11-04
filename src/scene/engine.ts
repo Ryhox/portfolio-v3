@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { projects } from '@/content/projects';
 import { reedSprites } from './art/gear';
-import { CAT_SIZE, COMPUTER, KEYBOARD, noticeSprite, PAW_W, PILL_AT, pictureToScreen, screenIdle, screenPicture, type Notice, type NoticeText } from './art/props';
+import { COMPUTER, KEYBOARD, pictureToScreen, screenPicture, screenStatic, screenTune } from './art/props';
 import { cut, Shatter } from './shatter';
 import { atlas, CRITTERS, critterKind, FAUNA, TUFT_KINDS, type FloraInfo } from './art/sprites';
 import { LITTER } from './art/floor';
@@ -30,7 +30,6 @@ import { BOUNDS, critterSpots, EYE, extraTrees, GLADE, inBounds, LAKE, POND, RIV
 import { PAL, setPalette } from './palette';
 import { hash2, hex, mix, mulberry, noise1, Pix, ramp, rgbOf, shade } from './pix';
 import { forest, forestNow } from './store';
-import { buttonState, paintBoard, type Look, type Painted as Board2D, type Para } from './boards';
 
 type Opts = {
   canvas: HTMLCanvasElement;
@@ -189,7 +188,6 @@ export function createForest(o: Opts) {
   type Art = { pix: Pix; rects: { x: number; y: number; w: number; h: number }[]; tex: THREE.Texture };
   let floraArt: Art | null = null;
   let stumpArt: { pix: Pix; ax: number; ay: number; d: number; tex: THREE.Texture } | null = null;
-  const paw = { mesh: null as LayerMesh | null, tex: [] as THREE.Texture[] };
   let computerPix: Pix | null = null;
   let critterPix: Pix | null = null;
   const got = new Set<string>();
@@ -259,7 +257,7 @@ export function createForest(o: Opts) {
         computerPix = pix;
         const d = CLEARING.camZ - CLEARING.computer.z;
         add(layerMesh({ pix, ax: COMPUTER.ax, ay: COMPUTER.ay, d }, {}, false), CLEARING.computer.x, 0, CLEARING.computer.z, 'computer');
-        const s = screenIdle(true);
+        const s = screenStatic(0, IDLE_STATIC);
         const sm = layerMesh({ pix: s, ax: COMPUTER.ax - COMPUTER.screen.x, ay: COMPUTER.ay - COMPUTER.screen.y, d }, {}, false, 0);
         sm.userData.caster = false;
         // the glass stays on the computer's face when you walk round it in pill mode
@@ -304,17 +302,6 @@ export function createForest(o: Opts) {
           cat.mesh = add(cm, st?.userData.catAt[0] ?? CLEARING.exitX, st?.userData.catAt[1] ?? 0.7, HOLLOW.stumpZ + 0.01);
           cat.mesh.userData.hollow = true;
         } else cat.shut = tex;
-        break;
-      }
-      case 'catPaw0':
-      case 'catPaw1': {
-        paw.tex[m.key === 'catPaw0' ? 0 : 1] = toTexture(pix, { mips: false });
-        if (!paw.mesh && cat.mesh) {
-          const d = HOLLOW.camZ - HOLLOW.stumpZ;
-          const pm = meshFor(quadFor(PAW_W, pix.h, CAT_SIZE.w / 2, pix.h, d), paw.tex[0] ?? paw.tex[1], 0.45, false);
-          paw.mesh = add(pm, cat.mesh.position.x, cat.mesh.position.y, HOLLOW.stumpZ + 0.012);
-          Object.assign(paw.mesh.userData, { hollow: true, hidden: true, offPlay: true });
-        }
         break;
       }
       case 'hollowWall': {
@@ -664,50 +651,9 @@ export function createForest(o: Opts) {
   let textGaveUp = false;
   let hung = false;
 
-  // --- words hung in the forest, painted sharp and drawn over the pixels ------------------------------------
-  type Board = { key: string; mesh: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>; art: Board2D; d: number; z: number; at: () => [number, number] };
+  // --- the sharp pass: words painted at full resolution, drawn over the pixels (the floppies' labels) ---------
   const boardScene = new THREE.Scene();
   const boardCam = new THREE.PerspectiveCamera();
-  const boards: Record<string, Board> = {};
-  const CREAM = '#f1ebd6';
-  const LEAF = '#c9d48f';
-  /** World units per CSS pixel for something at distance d, on this screen. */
-  const perCss = (d: number) => (d * K0 * (size.devW / size.cssW)) / size.scale;
-  // the socials as pixel buttons, each with its own little icon
-  const linksRow = (prefix: string, px: number): Para => ({
-    row: true,
-    gap: Math.round(px * 0.8),
-    runs: (['github', 'modrinth', 'email', 'discord'] as const).map((key) => ({
-      text: key === 'github' ? 'GitHub' : key[0].toUpperCase() + key.slice(1),
-      font: 'pixel' as const,
-      size: px,
-      weight: 600,
-      color: CREAM,
-      link: `${prefix}-${key}`,
-      button: true,
-      icon: key,
-    })),
-  });
-  /** The words beside the computer where there's no notice board for them (over the canopy), `fit` times their full size. */
-  function workParas(fit: number): Para[] {
-    const sel = forest.get().selected;
-    const s = (v: number) => Math.round(v * fit);
-    if (sel === null) {
-      return [
-        { runs: [{ text: 'Selected work', font: 'display', size: s(50), color: CREAM }], after: 6, lineHeight: 1.05 },
-        { runs: [{ text: 'Pick up a disc to load it.', font: 'text', size: s(18), color: CREAM }] },
-      ];
-    }
-    const p = projects[sel];
-    return [
-      { runs: [{ text: p.title, font: 'display', size: s(50), color: CREAM }], after: 4, lineHeight: 1.05 },
-      { runs: [{ text: p.kicker, font: 'italic', size: s(21), color: LEAF }], after: s(14) },
-      { runs: [{ text: p.description, font: 'text', size: s(18), color: CREAM }], after: s(12), lineHeight: 1.5 },
-      { runs: [{ text: p.stack.join(' · '), font: 'text', size: s(15), color: 'rgba(241,235,214,0.8)' }], after: s(16) },
-      { row: true, gap: s(16), runs: p.links.map((l, i) => ({ text: l.label, font: 'pixel' as const, size: s(18), weight: 600, color: CREAM, link: `work-link${i}`, button: true })) },
-    ];
-  }
-
   function boardMaterial(tex: THREE.Texture) {
     return new THREE.ShaderMaterial({
       uniforms: {
@@ -745,308 +691,8 @@ export function createForest(o: Opts) {
     });
   }
 
-  /** A pixel sprite drawn in the sharp pass: whole texels as crisp blocks however it's turned, in the air's light. */
-  function spriteMaterial(tex: THREE.Texture) {
-    const m = boardMaterial(tex);
-    m.uniforms.shade = { value: 1 };
-    m.fragmentShader = m.fragmentShader
-      .replace('uniform float opacity;', 'uniform float opacity;\n        uniform float shade;')
-      .replace('vec4 c = texture2D(map, vUv);', 'vec4 c = texture2D(map, vUv);\n          if (c.a < 0.5) discard;\n          c = vec4(c.rgb * shade, 1.0);');
-    return m;
-  }
-
-  /**
-   * Paints (or repaints) a board and hangs it; `at` gives its top-left corner in world x/y.
-   * Given paragraphs by size and a `fitH`, the words shrink until they fit that many CSS pixels high.
-   */
-  function hang(key: string, paras: Para[] | ((fit: number) => Para[]), width: number, d: number, z: number, at: () => [number, number], look: Look = 'scrim', fitH = Infinity) {
-    const ratio = Math.min(3, (size.devW / size.cssW) * 1.6);
-    const sized = typeof paras === 'function' ? paras : () => paras;
-    let art = paintBoard(sized(1), width, ratio, look);
-    for (let fit = 0.95; art.h > fitH && fit > 0.4; fit -= 0.05) art = paintBoard(sized(fit), width, ratio, look);
-    const tex = new THREE.CanvasTexture(art.canvas);
-    tex.colorSpace = THREE.NoColorSpace;
-    tex.anisotropy = 4;
-    renderer.initTexture(tex);
-    const old = boards[key];
-    if (old) {
-      (old.mesh.material.uniforms.map.value as THREE.Texture).dispose();
-      old.mesh.material.uniforms.map.value = tex;
-      old.art = art;
-      old.at = at;
-      return;
-    }
-    const geo = new THREE.PlaneGeometry(1, 1);
-    geo.translate(0.5, -0.5, 0);
-    const mesh = new THREE.Mesh(geo, boardMaterial(tex));
-    mesh.frustumCulled = false;
-    boardScene.add(mesh);
-    boards[key] = { key, mesh, art, d, z, at };
-  }
-
-  function hangAll() {
-    // the words beside the computer: written right on the old notice board where it has room beside the
-    // computer; on other wide screens they float high on the right, over the canopy. On phones and tall windows
-    // only the project's links show, as buttons at the bottom of the page
-    buildNotice();
-    if (notice.on || !size.wide) {
-      if (boards.work) {
-        boardScene.remove(boards.work.mesh);
-        (boards.work.mesh.material.uniforms.map.value as THREE.Texture).dispose();
-        delete boards.work;
-      }
-      return;
-    }
-    const wd = 4.6;
-    const ww = Math.min(470, size.cssW * 0.34);
-    const base = Math.min(1, Math.max(0.68, size.cssW / 760));
-    hang('work', (fit) => workParas(base * fit), ww, wd, CLEARING.camZ - wd, () => {
-      const k = perCss(wd);
-      // high on the right, so the links never sit behind a disc
-      return [size.restX + size.W * 0.1 * wd * K0 - 60 * k, CLEARING.camY + size.H * 0.3 * wd * K0 + 60 * k];
-    });
-  }
-
-  // --- the old notice board in the clearing ---------------------------------------------------------------
-  /**
-   * A pixel sprite like the computer, with the words painted right on its paper; painted here (not in the
-   * painters) because its size follows the screen and its words follow the disc you pick. It stands in the free
-   * space right of the computer, turned to face you. Walk on and it bursts to pieces, which stay lying in the
-   * grass, words and all, until you pick another disc: then a new board pulls itself up out of the ground.
-   */
-  const NOTICE_D = 3.6;
+  /** Phones and tablets: lighter foliage in pill mode. */
   const coarse = window.matchMedia('(pointer: coarse)').matches;
-  const notice = {
-    on: false,
-    mesh: null as LayerMesh | null,
-    sharp: null as THREE.Mesh<THREE.BufferGeometry, THREE.ShaderMaterial> | null,
-    sprite: null as Notice | null,
-    key: '',
-    z: CLEARING.camZ - NOTICE_D,
-    yaw: 0,
-    state: 'standing' as 'standing' | 'broken' | 'rising',
-    rise: 1,
-    shake: 0,
-    shatter: null as Shatter | null,
-  };
-  const noticeTilt = new THREE.Matrix4();
-  const tiltA = new THREE.Matrix4();
-  const noticeAt = new THREE.Vector3();
-  const noticeAt2 = new THREE.Vector3();
-  /** What the board says: the picked disc's project, or how to pick one. */
-  let noticeFonts: NoticeText['fonts'] | null = null;
-  function noticeText(sel: number | null): NoticeText {
-    if (!noticeFonts) {
-      const root = getComputedStyle(document.documentElement);
-      noticeFonts = { display: root.getPropertyValue('--font-display').trim() || 'Georgia, serif', pixel: root.getPropertyValue('--font-pixel').trim() || 'monospace' };
-    }
-    const fonts = noticeFonts;
-    const state = (i: number) => buttonState[`work-link${i}`];
-    if (sel === null) return { title: 'Selected work', body: 'Pick up a disc to load it.', links: [], hover: null, press: null, fonts };
-    const pr = projects[sel];
-    const hover = pr.links.findIndex((_, i) => state(i) === 'hover');
-    const press = pr.links.findIndex((_, i) => state(i) === 'press');
-    return { title: pr.title, kicker: pr.kicker, body: pr.description, stack: pr.stack.join(' · '), links: pr.links.map((l) => l.label), hover: hover < 0 ? null : hover, press: press < 0 ? null : press, fonts };
-  }
-  function buildNotice() {
-    const t = texelAt(NOTICE_D);
-    // the free space right of the computer, in game pixels from the middle of the screen
-    const from = size.W * 0.07;
-    const avail = size.W * 0.5 - from - 6;
-    // pill mode always has the board standing in the clearing, to read and to shoot
-    const was = notice.on;
-    notice.on = playing || (size.wide && avail >= 168);
-    if (!notice.on) {
-      if (notice.sharp) notice.sharp.visible = false;
-      // the page's links over its buttons go with it
-      if (was) for (const el of document.querySelectorAll<HTMLElement>('[data-pin^="work-link"]')) pin(el, 0, 0, 0, 0, 0, false);
-      return;
-    }
-    const bw = Math.round(Math.min(196, avail - 14));
-    // as tall as fits under the top of the screen (the turn brings its near edge up a little), on short posts
-    const floorAt = -CLEARING.camY / t;
-    const legs = 6;
-    const bh = Math.round(Math.min(bw * 0.8, (size.H / 2 - 3) / 1.07 - floorAt - 7 - legs));
-    const cx = from + Math.min(avail, bw + 12) / 2 + 2;
-    const sel = forest.get().selected;
-    const text = noticeText(sel);
-    const key = [bw, bh, legs, sel, text.hover, text.press, document.fonts?.status].join();
-    if (notice.key !== key) {
-      notice.key = key;
-      const sp = noticeSprite(bw, bh, legs, text);
-      // the low pass keeps it only for its shadow; what you see is drawn in the sharp pass, where every texel
-      // stays a crisp block however the board is turned, so the words on it read cleanly
-      const mesh = layerMesh({ pix: sp.pix, ax: sp.ax, ay: sp.ay, d: NOTICE_D }, {}, false);
-      mesh.matrixAutoUpdate = false;
-      mesh.userData.hidden = true;
-      const sharp = new THREE.Mesh(mesh.geometry, spriteMaterial(mesh.material.uniforms.map.value as THREE.Texture));
-      sharp.matrixAutoUpdate = false;
-      sharp.frustumCulled = false;
-      if (notice.mesh) {
-        scene.remove(notice.mesh);
-        layers.splice(layers.indexOf(notice.mesh), 1);
-        notice.mesh.geometry.dispose();
-        (notice.mesh.material.uniforms.map.value as THREE.Texture).dispose();
-      }
-      if (notice.sharp) {
-        boardScene.remove(notice.sharp);
-        notice.sharp.material.dispose();
-      }
-      notice.mesh = add(mesh, 0, 0, notice.z, 'notice');
-      notice.mesh.userData.born = -1;
-      notice.sharp = sharp;
-      boardScene.add(sharp);
-      notice.sprite = sp;
-    }
-    const x = size.restX + cx * t;
-    notice.mesh!.position.set(x, 0, notice.z);
-    // turned to face you where you stand in the clearing
-    notice.yaw = -Math.atan2(x - size.restX, NOTICE_D) * 0.62;
-  }
-  /** Where a pixel of the board's sprite is in the world, as the board stands now. */
-  function onNotice(x: number, y: number, out: THREE.Vector3) {
-    const sp = notice.sprite!;
-    const t = texelAt(NOTICE_D);
-    return out.set((x - sp.ax) * t, (sp.ay - y) * t, 0).applyMatrix4(notice.mesh!.matrix);
-  }
-  /** Bursts the board: cut as it stands (words and all), thrown out towards you, dust where it stood. */
-  function breakNotice() {
-    const sp = notice.sprite!;
-    if (notice.shatter) {
-      scene.remove(notice.shatter.mesh, notice.shatter.spray.points);
-      notice.shatter.dispose();
-    }
-    const sh = new Shatter(sp.pix, cut(sp.pix, coarse ? 30 : 56, 97), coarse ? 320 : 900);
-    fixFacing(sh.mesh);
-    scene.add(sh.mesh, sh.spray.points);
-    notice.shatter = sh;
-    const turn = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), notice.yaw);
-    const from = onNotice(sp.pix.w / 2, sp.pix.h * 0.38, new THREE.Vector3());
-    from.x -= Math.sin(notice.yaw) * 0.35;
-    from.z -= Math.cos(notice.yaw) * 0.35;
-    sh.burst(onNotice, texelAt(NOTICE_D), turn, from, 97);
-    notice.state = 'broken';
-    notice.shake = reduced ? 0 : 0.4;
-    // every way it goes (shot, walked through on the walk, run or hopped through in pill mode) it's heard
-    sfx.play('board', playing ? placeSound(from.x, from.z) : {});
-  }
-  /** A new board pulls itself out of the ground; the old pieces sink away. */
-  function raiseNotice() {
-    notice.state = 'rising';
-    notice.rise = 0;
-    sfx.play('boardUp', { gain: 0.8 });
-    notice.shatter?.sink();
-    const sp = notice.sprite;
-    if (sp && notice.shatter) {
-      onNotice(0, sp.pix.h, noticeAt);
-      onNotice(sp.pix.w, sp.pix.h, noticeAt2);
-      notice.shatter.dirt(noticeAt.x, noticeAt2.x, notice.z + 0.1);
-    }
-  }
-  function updateNotice(dt: number) {
-    // follow the screen's layout (the clearing's rest point moves with it) and the picked disc
-    buildNotice();
-    const sh = notice.shatter;
-    sh?.update(dt);
-    if (sh && !notice.on) sh.mesh.visible = false;
-    if (!notice.on || !notice.mesh || !notice.sprite) return;
-    notice.shake = Math.max(0, notice.shake - dt);
-    if (!playing && notice.state === 'standing' && ready && o.scroll() > stages.a + 6 && Math.abs(camera.position.z - CLEARING.camZ) < 3) breakNotice();
-    if (notice.state === 'rising') {
-      notice.rise = reduced ? 1 : Math.min(1, notice.rise + dt / 1.1);
-      if (notice.rise >= 1) notice.state = 'standing';
-    }
-    // face the camera; while rising, come up out of the ground with a little overshoot
-    const r = notice.state === 'rising' ? notice.rise : 1;
-    const c1 = 1.70158;
-    const e = 1 + (c1 + 1) * Math.pow(r - 1, 3) + c1 * Math.pow(r - 1, 2);
-    const sink = (1 - e) * (notice.sprite.pix.h * texelAt(NOTICE_D) + 0.05);
-    const m = notice.mesh;
-    const x = m.position.x;
-    noticeTilt.makeTranslation(x, -sink, notice.z);
-    noticeTilt.multiply(tiltA.makeRotationY(notice.yaw));
-    noticeTilt.multiply(tiltA.makeTranslation(-x, 0, -notice.z));
-    m.updateMatrix();
-    m.matrix.premultiply(noticeTilt);
-    m.matrixWorldNeedsUpdate = true;
-    // the sharp board, in the same place, fogged with distance and dimmed with the clearing's light
-    const sharp = notice.sharp!;
-    sharp.matrix.copy(m.matrix);
-    sharp.matrixWorldNeedsUpdate = true;
-    const dz = camera.position.z - notice.z;
-    const su = sharp.material.uniforms;
-    su.fogColor.value.copy(air.fog);
-    su.fog.value = Math.min(1, 1 - Math.exp(-Math.max(0, dz - 5) * air.density * 1.6));
-    su.opacity.value = Math.min(1, (dz - 0.05) * 3);
-    su.shade.value = Math.min(1.05, air.ambient * 0.7 + 0.36);
-    sharp.visible = notice.state !== 'broken' && dz > 0.05 && su.fog.value < 0.97;
-    // the page's real links over the buttons painted on the paper
-    const show = notice.state === 'standing' && Math.abs(camera.position.z - CLEARING.camZ) < 0.6;
-    notice.sprite.links.forEach((l, i) => {
-      onNotice(l.x, l.y + l.h, noticeAt);
-      onNotice(l.x + l.w, l.y, noticeAt2);
-      pin($(`[data-pin="work-link${i}"]`), Math.min(noticeAt.x, noticeAt2.x), Math.min(noticeAt.y, noticeAt2.y), Math.max(noticeAt.x, noticeAt2.x), Math.max(noticeAt.y, noticeAt2.y), (noticeAt.z + noticeAt2.z) / 2, show);
-    });
-  }
-  const pressedAt: Record<string, number> = {};
-  const buttonEvent = (state: 'hover' | 'press' | null) => (ev: Event) => {
-    const el = (ev.target as HTMLElement | null)?.closest?.('[data-pin]') as HTMLElement | null;
-    if (!el?.dataset.pin) return;
-    const id = el.dataset.pin;
-    const apply = () => {
-      if (disposed) return;
-      const next = state ?? undefined;
-      if (buttonState[id] === next) return;
-      if (next) buttonState[id] = next;
-      else delete buttonState[id];
-      if (next === 'press') pressedAt[id] = performance.now();
-      // the socials hang on their own board even where the work's words are on the notice board
-      if (hung) hangAll();
-    };
-    // a quick click still shows the button going down: it stays pressed a moment, however short the click
-    const held = performance.now() - (pressedAt[id] ?? -1e9);
-    if (buttonState[id] === 'press' && state !== 'press' && held < 160) setTimeout(apply, 160 - held);
-    else apply();
-  };
-  const onOver = buttonEvent('hover');
-  const onOut = buttonEvent(null);
-  const onDown = buttonEvent('press');
-  document.addEventListener('pointerover', onOver);
-  document.addEventListener('pointerout', onOut);
-  document.addEventListener('pointerdown', onDown);
-  document.addEventListener('pointerup', onOver);
-  document.addEventListener('focusin', onOver);
-  document.addEventListener('focusout', onOut);
-  let paintedFor: number | null | undefined;
-  forest.subscribe(() => {
-    const sel = forest.get().selected;
-    if (sel === paintedFor) return;
-    paintedFor = sel;
-    // picking a disc while the board lies in pieces brings a new one up; its words follow the disc either way
-    if (notice.on && notice.state === 'broken' && sel !== null) raiseNotice();
-    if (boards.work) hangAll();
-  });
-
-  function updateBoards() {
-    for (const b of Object.values(boards)) {
-      const k = perCss(b.d);
-      const [x, y] = b.at();
-      b.mesh.position.set(x, y, b.z);
-      b.mesh.scale.set(b.art.w * k, b.art.h * k, 1);
-      const dz = camera.position.z - b.z;
-      b.mesh.visible = dz > 0.05;
-      const u = b.mesh.material.uniforms;
-      u.fogColor.value.copy(air.fog);
-      u.fog.value = Math.min(1, 1 - Math.exp(-Math.max(0, dz - 5) * air.density * 1.6));
-      u.opacity.value = Math.min(1, (dz - 0.05) * 3) * (1 - u.fog.value);
-      b.mesh.visible = b.mesh.visible && u.fog.value < 0.97;
-      // the page's real links ride on top of the painted ones
-      for (const l of b.art.links) {
-        const el = $(`[data-pin="${l.id}"]`);
-        pin(el, x + l.x * k, y - (l.y + l.h) * k, x + (l.x + l.w) * k, y - l.y * k, b.z, b.mesh.visible && u.fog.value < 0.5);
-      }
-    }
-  }
 
   // --- the writing on each floppy's label: sharp, lying on the disc, going wherever the disc goes -------------
   const labels: (THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial> | null)[] = [];
@@ -1157,7 +803,8 @@ export function createForest(o: Opts) {
   /** Where the camera rests at the clearing, and where the discs go, for this screen shape. */
   function placeClearing() {
     const dComp = CLEARING.camZ - CLEARING.computer.z;
-    size.restX = size.wide ? CLEARING.computer.x + 0.13 * size.W * dComp * K0 : CLEARING.computer.x;
+    // the computer stands in the middle of the view (the words that stood right of it are gone)
+    size.restX = CLEARING.computer.x;
     const compScreenX = (CLEARING.computer.x - size.restX) / (dComp * K0);
     // contact shade under the computer and the stump
     if (floor) {
@@ -1170,7 +817,7 @@ export function createForest(o: Opts) {
     if (keyed.keyboard) keyed.keyboard.position.x = size.restX + (compScreenX - Math.round(22.5 * 1.9)) * KEYBOARD_D * K0;
     const margin = 34;
     const left = compScreenX - (-size.W / 2 + margin);
-    const right = (size.wide ? size.W * 0.08 : size.W / 2 - margin) - compScreenX;
+    const right = size.W / 2 - margin - compScreenX;
     const minDx = Math.min(...DISCS.map((s) => s.dx));
     const maxDx = Math.max(...DISCS.map((s) => s.dx));
     const fitL = Math.min(1, left / -minDx);
@@ -1232,7 +879,6 @@ export function createForest(o: Opts) {
     placeEdge();
     placeClearing();
     measure();
-    if (hung) hangAll();
   }
 
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1240,6 +886,8 @@ export function createForest(o: Opts) {
   // --- the drive ----------------------------------------------------------------------------------------
   let loaded: number | null = null;
   let bootAt = -1;
+  /** The boot the screen last grew to full screen for. */
+  let grewFor = -1;
   const slot = new THREE.Vector3();
   function updateSlot() {
     const t = texelAt(CLEARING.camZ - CLEARING.computer.z);
@@ -1261,6 +909,7 @@ export function createForest(o: Opts) {
       if (loaded !== null && discs[loaded]?.t === 1) {
         move(loaded, 0, now);
         bootAt = -1;
+        offAt = now;
         forest.set({ loaded: null });
         loaded = null;
       } else if (st.selected !== null && discs[st.selected]) {
@@ -1294,6 +943,8 @@ export function createForest(o: Opts) {
   }
 
   let lastScreen = '';
+  /** When the disc last came out, for the page on the glass dissolving back into static. */
+  let offAt = -1;
   /** The projects' little screen pictures, for the monitor in pill mode. */
   const shots: Uint32Array[] = [];
   function screenShot(i: number) {
@@ -1309,22 +960,38 @@ export function createForest(o: Opts) {
     return shots[i];
   }
   const dark = new Uint32Array(COMPUTER.screen.w * COMPUTER.screen.h).fill(PAL.computer.screen[1]);
+  /**
+   * How bright the waiting static is; how long tuning in takes (the static brightens over the first third, and the
+   * page on the glass comes up through static of its own from there); how long the page takes to dissolve back out.
+   */
+  const IDLE_STATIC = 0.42;
+  const TV_ON = 0.9;
+  const TV_OFF = 0.5;
   function updateScreen(now: number) {
     if (!screen.tex || !screen.pix || screenBroken) return;
     let key: string;
     let pix: Pix;
+    // an old TV, always on: static while it waits; a disc tunes it in (the static brightens, then clears to the
+    // picture), and when the disc comes out it's back to static (on the walk the page dissolves into it, see
+    // .pin-screen). The static runs at 14 fps.
+    const frame = Math.floor(now * 14);
     if (bootAt < 0) {
-      const on = Math.floor(now / 0.53) % 2 === 0;
-      key = `idle${on}`;
+      key = `idle${frame}`;
       if (key === lastScreen) return;
-      pix = screenIdle(on);
+      pix = screenStatic(frame, IDLE_STATIC);
     } else {
-      const k = Math.min(1, (now - bootAt) / 0.35);
-      const steps = Math.floor(k * 13) / 13;
+      const k = Math.min(1, (now - bootAt) / TV_ON);
       const shot = playing && loaded !== null ? screenShot(loaded) : dark;
-      key = `boot${steps}${shot === dark ? '' : loaded}`;
-      if (key === lastScreen) return;
-      pix = screenPicture(shot, steps);
+      const which = shot === dark ? '' : loaded;
+      if (k < 1) {
+        key = `on${frame}:${Math.floor(k * 30)}${which}`;
+        if (key === lastScreen) return;
+        pix = screenTune(k, frame, shot, IDLE_STATIC);
+      } else {
+        key = `shot${which}`;
+        if (key === lastScreen) return;
+        pix = screenPicture(shot);
+      }
     }
     lastScreen = key;
     screen.pix.data.set(pix.data);
@@ -1419,10 +1086,6 @@ export function createForest(o: Opts) {
     const layer = $('discs');
     const active = discsOn ? 'true' : 'false';
     if (layer && layer.dataset.active !== active) layer.dataset.active = active;
-    // on phones and tall windows, the picked project's links wait at the bottom of the screen
-    const bar = $('work-bar');
-    const barOn = atClearing && !size.wide && st.selected !== null ? 'true' : 'false';
-    if (bar && bar.dataset.show !== barOn) bar.dataset.show = barOn;
     discs.forEach((d, i) => {
       if (!d) return;
       const b = $(`[data-disc="${i}"]`);
@@ -1433,38 +1096,48 @@ export function createForest(o: Opts) {
         if (b.dataset.moving !== moving) b.dataset.moving = moving;
       }
     });
-    // the monitor's glass, for the project video
+    // the monitor's glass, for the project video; once it has lit up, it grows to fill the screen (the page's
+    // full-screen view, which starts from the glass), once for each disc that goes in
     const t = texelAt(CLEARING.camZ - CLEARING.computer.z);
     const sc = COMPUTER.screen;
     const x0 = CLEARING.computer.x + (sc.x - COMPUTER.ax) * t;
     const y1 = (COMPUTER.ay - sc.y) * t;
-    pin($('pin-screen'), x0, y1 - sc.h * t, x0 + sc.w * t, y1, CLEARING.computer.z + 0.01, atClearing && st.loaded !== null && bootAt >= 0 && clock - bootAt > 0.3);
+    // (the page comes up once the static has brightened, and tunes in through static of its own: see .pin-screen)
+    const glass = atClearing && st.loaded !== null && bootAt >= 0 && clock - bootAt > TV_ON * 0.35;
+    // inside the screen it stays up while a flip swaps the disc behind it (the page changes channel itself); when
+    // the disc comes out, it stays a moment to dissolve back into the static
+    const on = glass || st.full;
+    const fading = atClearing && offAt >= 0 && clock - offAt < TV_OFF;
+    const el = $('pin-screen');
+    const r = pin(el, x0, y1 - sc.h * t, x0 + sc.w * t, y1, CLEARING.computer.z + 0.01, on || fading);
+    if (el && r) {
+      fitPage(el, r.w);
+      const tune = on ? 'in' : 'out';
+      if (el.dataset.tune !== tune) el.dataset.tune = tune;
+    }
+    if (st.full) grewFor = bootAt;
+    else if (glass && st.loaded === st.selected && grewFor !== bootAt && clock - bootAt > TV_ON * 0.35 + 1.05) {
+      grewFor = bootAt;
+      forest.set({ full: true });
+    }
   }
 
-  // --- the cat's pill ------------------------------------------------------------------------------------
   /**
-   * A second after you sit down by the cat, she holds out a paw with a pill on it; a line of words over it and
-   * a Take button under it are the page's own, pinned to the paw.
+   * The page on the glass is laid out at the window's size and scaled down onto the glass, so that once you're inside
+   * the screen (the glass covering the window) it's exactly the window: `--k` is how far it's scaled.
    */
-  const offer = { t: 0 };
-  function updateOffer(dt: number, s: number, at: THREE.Vector3) {
-    // she has it ready as you come down to her, not after you've sat a while
-    const there = ready && !trans && s >= stages.c - window.innerHeight * 0.35 && at.z < HOLLOW.camZ + 2.5;
-    offer.t = there ? offer.t + dt : 0;
-    const frame = offer.t < 0.15 ? -1 : offer.t < 0.3 ? 0 : 1;
-    if (paw.mesh) {
-      paw.mesh.userData.hidden = frame < 0;
-      const tex = paw.tex[Math.max(0, frame)];
-      if (tex) paw.mesh.material.uniforms.map.value = tex;
-    }
-    const show = frame === 1 && offer.t > 0.45 && !!paw.mesh;
-    const t = texelAt(HOLLOW.camZ - HOLLOW.stumpZ);
-    const p = paw.mesh?.position;
-    const px = (p?.x ?? 0) + (PILL_AT.x - CAT_SIZE.w / 2) * t;
-    const py = (p?.y ?? 0) + (CAT_SIZE.h - PILL_AT.y) * t;
-    pinPoint($('pill-say'), px - 2.5 * t, py + 3 * t, p?.z ?? 0, show);
-    pinPoint($('pill-take'), px - 2.5 * t, py - 7 * t, p?.z ?? 0, show);
+  let pageFit = '';
+  function fitPage(el: HTMLElement, glassW: number) {
+    const px = (size.scale * size.cssW) / size.devW;
+    const k = glassW / (COMPUTER.screen.w * insideM() * px);
+    const key = `${k.toFixed(4)} ${size.cssW} ${size.cssH}`;
+    if (key === pageFit) return;
+    pageFit = key;
+    el.style.setProperty('--k', k.toFixed(4));
+    el.style.setProperty('--pw', `${size.cssW}px`);
+    el.style.setProperty('--ph', `${size.cssH}px`);
   }
+
   /** Moves a page element so its anchor sits on a point in the forest (its own CSS places it round that point). */
   function pinPoint(el: HTMLElement | null, x: number, y: number, z: number, show: boolean) {
     if (!el) return;
@@ -1708,7 +1381,7 @@ export function createForest(o: Opts) {
   let rippleNext = 0;
   const wading = { ring: 0, dry: true, air: false };
   const ray = new THREE.Raycaster();
-  const props3d = { discs: [] as LayerMesh[], board: [] as LayerMesh[], boardFor: null as Notice | null, pc: null as LayerMesh | null };
+  const props3d = { discs: [] as LayerMesh[], pc: null as LayerMesh | null };
   let screenBroken = false;
   /** Mira, and whether you're near her (she waves as you come up) */
   let seller: Seller | null = null;
@@ -2032,29 +1705,7 @@ export function createForest(o: Opts) {
       }
   }
 
-  /** The back of the notice board: plain planks, their grain and gaps, a nail at each end. */
-  function paintBoardBack(p: Pix) {
-    const wood = ramp('#3a2a1c', '#5a4129', '#76583a', '#8f6f4b', '#a8875f');
-    for (let y = 0; y < p.h; y++)
-      for (let x = 0; x < p.w; x++) {
-        if (!(p.get(x, y) >>> 24)) continue;
-        const plank = Math.floor(y / 7);
-        let t = 0.5 + (noise1(x * 0.16 + plank * 13.1, 966) - 0.5) * 0.4 + (hash2(x, y, 967) - 0.5) * 0.1;
-        if (y % 7 === 0) t = 0.05;
-        p.set(x, y, shade(wood, t));
-      }
-    for (let y = 3; y < p.h; y += 7)
-      for (let x = 0; x < p.w; x++) {
-        if (!(p.get(x, y) >>> 24)) continue;
-        p.set(x + 3, y, wood[0]);
-        let e = x;
-        while (e < p.w && p.get(e, y) >>> 24) e++;
-        p.set(e - 4, y, wood[0]);
-        break;
-      }
-  }
-
-  /** The floppies follow the drive (standing up as they fly into the slot); the board stands as the walk's does. */
+  /** The floppies follow the drive (standing up as they fly into the slot). */
   function updateProps() {
     discs.forEach((d, i) => {
       const m = props3d.discs[i];
@@ -2066,31 +1717,6 @@ export function createForest(o: Opts) {
       m.scale.setScalar(1 - 0.5 * smooth(0.6, 1, e));
       m.userData.dead = e >= 0.98;
     });
-    const sp = notice.sprite;
-    if (props3d.boardFor !== sp) {
-      for (const m of props3d.board) {
-        scene.remove(m);
-        layers.splice(layers.indexOf(m), 1);
-        m.geometry.dispose();
-      }
-      props3d.board = [];
-      props3d.boardFor = sp;
-      if (sp && notice.mesh) {
-        const ex = extrude(sp.pix, texelAt(NOTICE_D), sp.ax, sp.ay, 0.05, paintBoardBack);
-        const tex = notice.mesh.material.uniforms.map.value as THREE.Texture;
-        for (const [g, t] of [[ex.body, tex], [ex.back, toTexture(ex.backPix, { mips: false })]] as const) {
-          const m = add(solidMesh(g, t), 0, 0, 0);
-          m.matrixAutoUpdate = false;
-          m.userData.playOnly = true;
-          props3d.board.push(m);
-        }
-      }
-    }
-    for (const m of props3d.board) {
-      m.matrix.copy(notice.mesh!.matrix);
-      m.matrixWorldNeedsUpdate = true;
-      m.userData.dead = !notice.on || notice.state === 'broken';
-    }
   }
 
   function enterPlay() {
@@ -2127,9 +1753,6 @@ export function createForest(o: Opts) {
     sunCam.left = sunCam.bottom = -30;
     sunCam.right = sunCam.top = 30;
     sunCam.updateProjectionMatrix();
-    offer.t = 0;
-    pinPoint($('pill-say'), 0, 0, 0, false);
-    pinPoint($('pill-take'), 0, 0, 0, false);
     hud?.setScore(wallet.get().points, hunt.kills);
     lastScreen = '';
   }
@@ -2430,10 +2053,7 @@ export function createForest(o: Opts) {
       P.vx *= 13 / hs;
       P.vz *= 13 / hs;
     }
-    const was0 = P.x;
-    const was1 = P.z;
     moveTo(P.x + P.vx * dt, P.z + P.vz * dt);
-    throughBoard(was0, was1);
     if (wantsJump) {
       P.vy = 2.9;
       hunt.jumpedAt = c.jumpAt;
@@ -2545,42 +2165,6 @@ export function createForest(o: Opts) {
       out.push({ b, t: depth, head });
     }
     return out.sort((p, q) => p.t - q.t);
-  }
-
-  /** Running (or hopping) into the notice board bursts it, the way the walk flies through it. */
-  const boardDir = new THREE.Vector3();
-  function throughBoard(x0: number, z0: number) {
-    const b = props3d.board[0];
-    if (!b || b.userData.dead || notice.state !== 'standing') return;
-    const dx = P.x - x0;
-    const dz = P.z - z0;
-    const len = Math.hypot(dx, dz);
-    if (len < 1e-4) return;
-    boardDir.set(dx / len, 0, dz / len);
-    let hit = false;
-    for (const h of [0.22, 0.45, 0.68]) {
-      ray.set(tv.set(x0, h + P.y, z0), boardDir);
-      ray.near = 0;
-      ray.far = len + 0.24;
-      if (ray.intersectObject(b, false).length) {
-        hit = true;
-        break;
-      }
-    }
-    ray.far = Infinity;
-    if (!hit) return;
-    breakNotice();
-    // it takes a little of your speed with it
-    P.vx *= 0.75;
-    P.vz *= 0.75;
-  }
-
-  /** How far along the view the notice board is, if the shot meets it. */
-  function boardHit() {
-    const b = props3d.board[0];
-    if (!b || b.userData.dead) return null;
-    ray.setFromCamera(new THREE.Vector2(0, 0), camera);
-    return ray.intersectObject(b, false)[0]?.distance ?? null;
   }
 
   /** A kill: points, medals, the burst; birds that were flying, butterflies with a butterfly knife, all of it. */
@@ -2734,17 +2318,16 @@ export function createForest(o: Opts) {
         sfx.play('eep', placeSound(MIRA.x, MIRA.z));
       }
     }
-    // the computer and the notice board, straight down the middle
+    // the computer, straight down the middle
     ray.setFromCamera(new THREE.Vector2(0, 0), camera);
     const pc = props3d.pc ? ray.intersectObject(props3d.pc, false)[0] : undefined;
-    const board = boardHit();
     const first = shotHits(pitch, 0, 0, 80)[0];
     const animalT = first ? first.t / Math.cos(pitch) : Infinity;
     // Mira's things: the cases, the glass, the cases behind it, the barrel, the sign
     ray.setFromCamera(new THREE.Vector2(0, 0), camera);
     const shop = shopHits();
     const sh0 = shop[0];
-    if (sh0 && sh0.h.distance < animalT && sh0.h.distance < (pc?.distance ?? Infinity) && sh0.h.distance < (board ?? Infinity)) {
+    if (sh0 && sh0.h.distance < animalT && sh0.h.distance < (pc?.distance ?? Infinity)) {
       if (sh0.sign) swingSign(-Math.cos(P.yaw), sh0.h);
       else if (sh0.b) {
         smash(sh0.b);
@@ -2757,7 +2340,7 @@ export function createForest(o: Opts) {
       hud?.hit();
       return;
     }
-    if (pc && pc.distance < animalT && pc.distance < (board ?? Infinity)) {
+    if (pc && pc.distance < animalT) {
       const t = texelAt(CLEARING.camZ - CLEARING.computer.z);
       const ix = (pc.point.x - CLEARING.computer.x) / t + COMPUTER.ax - COMPUTER.screen.x;
       const iy = COMPUTER.ay - pc.point.y / t - COMPUTER.screen.y;
@@ -2770,11 +2353,6 @@ export function createForest(o: Opts) {
         decals?.add(pc.point, pc.face?.normal ?? new THREE.Vector3(0, 0, 1), 'metal', 0.05);
         sfx.play('metal', placeSound(pc.point.x, pc.point.z));
       }
-      hud?.hit();
-      return;
-    }
-    if (board !== null && board < animalT && notice.state !== 'broken') {
-      breakNotice();
       hud?.hit();
       return;
     }
@@ -2909,7 +2487,7 @@ export function createForest(o: Opts) {
   }
 
   /**
-   * An animal hit: it bursts like the notice board does, its own pixels in pieces that tumble, bounce and lie
+   * An animal hit: it bursts into its own pixels in pieces that tumble, bounce and lie
    * in the grass, with a spray of cartoon-bright red (jam, not gore) that spatters round it; later it all sinks.
    */
   const gibs: { sh: Shatter; age: number; sunk: boolean }[] = [];
@@ -3262,6 +2840,40 @@ export function createForest(o: Opts) {
     return base;
   }
 
+  // --- the big screen: the camera dives into the monitor until its glass (the project's video) fills the window --
+  const lean = { p: 0 };
+  /** How far past the window the glass reaches once you're inside it, so its round corners stay out of sight. */
+  const OVERSCAN = 1.06;
+  /** Game pixels per texel of the glass once you're inside it: enough for it to cover the whole window. */
+  const insideM = () => Math.max(size.W / COMPUTER.screen.w, size.H / COMPUTER.screen.h) * OVERSCAN;
+  const leanAt = new THREE.Vector3();
+  const leaned = new THREE.Vector3();
+  /**
+   * Where the camera looks from while the big screen is up (or on its way): a straight dolly from the walk's view
+   * into the glass until it covers the window, eased by the log of the distance so the zoom feels even. The camera
+   * only moves, never turns, like everywhere on the walk.
+   */
+  function leanIn(at: THREE.Vector3, dt: number) {
+    const want = forest.get().full && !playing;
+    const step = reduced ? 1 : dt / (want ? 1.15 : 0.8);
+    lean.p = want ? Math.min(1, lean.p + step) : Math.max(0, lean.p - step);
+    if (lean.p <= 0) return at;
+    const dc = CLEARING.camZ - CLEARING.computer.z;
+    const t = texelAt(dc);
+    const sc = COMPUTER.screen;
+    const gx = CLEARING.computer.x + (sc.x + sc.w / 2 - COMPUTER.ax) * t;
+    const gy = (COMPUTER.ay - sc.y - sc.h / 2) * t;
+    const gz = CLEARING.computer.z + 0.01;
+    // into the screen: the glass ends up covering the whole window, centred, its edges just past the window's;
+    // a texel is dc/D game pixels seen from D away (the wood is painted for the clearing's own view)
+    const D1 = (dc * size.H) / (insideM() * size.fovH);
+    leanAt.set(gx, gy, gz + D1);
+    const D0 = Math.max(D1 + 1e-3, at.z - gz);
+    const D = D0 * Math.pow(D1 / D0, easeInOut(lean.p));
+    const f = (D0 - D) / (D0 - D1);
+    return leaned.set(at.x + (leanAt.x - at.x) * f, at.y + (leanAt.y - at.y) * f, gz + D);
+  }
+
   /**
    * The camera rides a soft spring behind the scroll. Come into the clearing fast and it sinks a little past
    * the rest and settles back, instead of stopping dead. What you see strays at most SPRING_REACH from the path.
@@ -3358,14 +2970,8 @@ export function createForest(o: Opts) {
     if (water) water.visible = false;
     const puffsOn = puffs?.points.visible ?? false;
     if (puffs) puffs.points.visible = false;
-    // the board's pieces and their spray read the shadow map, so they mustn't draw into it
-    const sh = notice.shatter;
-    const shards = sh?.mesh.visible ?? false;
-    if (sh) sh.mesh.visible = sh.spray.points.visible = false;
+    // the animals' pieces and their spray read the shadow map, so they mustn't draw into it
     for (const g of gibs) g.sh.mesh.visible = g.sh.spray.points.visible = false;
-    // the notice board is drawn in the sharp pass, but its shadow still falls in the forest
-    const board = notice.mesh && notice.on && notice.state !== 'broken' && !playing;
-    if (board) notice.mesh!.visible = true;
     fauna?.useDepth(true);
     const effects = [voxels?.mesh, decals?.mesh].filter(Boolean) as THREE.Object3D[];
     const effectsOn = effects.map((m) => m.visible);
@@ -3391,13 +2997,8 @@ export function createForest(o: Opts) {
     }
     fauna?.useDepth(false);
     effects.forEach((m, i) => (m.visible = effectsOn[i]));
-    if (notice.mesh) notice.mesh.visible = false;
     for (const m of layers) m.material = m.userData.lit;
     for (const m of hidden) m.visible = true;
-    if (sh) {
-      sh.mesh.visible = shards;
-      sh.spray.points.visible = true;
-    }
     sky.visible = true;
     weather.group.visible = true;
     if (floor) floor.visible = true;
@@ -3491,15 +3092,9 @@ export function createForest(o: Opts) {
       atClearing = Math.abs(target.z - CLEARING.camZ) < 0.6 && s >= stages.a - window.innerHeight * 0.04;
       // the discs stay yours to pick while you can still see them: a little either side of the clearing too
       discsOn = s >= stages.a - window.innerHeight * 0.2 && (Math.abs(target.z - CLEARING.camZ) < 0.6 || Math.abs(at.z - CLEARING.camZ) < 1.6);
-      // the board bursting gives the view a short, dying jolt
-      if (notice.shake > 0) {
-        const k = (notice.shake / 0.4) ** 2 * 0.035;
-        at.x += (Math.random() - 0.5) * k;
-        at.y += (Math.random() - 0.5) * k;
-      }
     }
 
-    camera.position.copy(at);
+    camera.position.copy(playing ? at : leanIn(at, dt));
     camera.updateMatrixWorld();
     const arrival = arrivals.shift();
     if (arrival) receive(arrival);
@@ -3556,20 +3151,18 @@ export function createForest(o: Opts) {
     if (playing) {
       updateFauna(dt, now);
       updatePlayWorld(dt, now);
-      updateNotice(dt);
       updateProps();
       updatePrompt();
     } else {
       updateCritters(dt, now);
-      updateNotice(dt);
-      updateOffer(dt, s, at);
     }
     if (dust) (dust.material as THREE.ShaderMaterial).uniforms.time.value = now;
     if (cat.mesh && cat.open && cat.shut) {
       const cycle = now % 4.2;
       cat.mesh.material.uniforms.map.value = cycle > 4.02 || (cycle > 3.78 && cycle < 3.9) ? cat.shut : cat.open;
     }
-    if (!playing) placePins(atClearing, at.z < -40 && at.z > -78, discsOn);
+    // leaning in to the big screen, the discs aren't yours to pick
+    if (!playing) placePins(atClearing, lean.p === 0 && at.z < -40 && at.z > -78, discsOn && lean.p === 0);
 
     // the page covers the wood until you get to it: draw nothing until then (it's the phone's battery);
     // "in the wood" (for the loading screen and the sound) once the white has started to fall away
@@ -3600,8 +3193,7 @@ export function createForest(o: Opts) {
       renderer.autoClear = true;
     }
     if (playing) return;
-    // the words, sharp, over the pixels, through the same camera and the same crop
-    updateBoards();
+    // the floppies' labels, sharp, over the pixels, through the same camera and the same crop
     updateLabels();
     boardCam.fov = camera.fov;
     boardCam.aspect = camera.aspect;
@@ -3694,7 +3286,6 @@ export function createForest(o: Opts) {
   (document.fonts?.ready ?? Promise.resolve()).then(() => {
     if (disposed) return;
     clearTimeout(fontWait);
-    hangAll();
     hung = true;
     fontsIn = true;
     if (doneGroups.size) warmUp();
@@ -3716,7 +3307,7 @@ export function createForest(o: Opts) {
   window.visualViewport?.addEventListener('resize', onLayout);
   resize();
   tick();
-  if (process.env.NODE_ENV !== 'production') Object.assign(window, { __forest: { camera, stages, size, scene, layers, fog: fog.material.uniforms, light, atmos, renderer, main, fogged, P, store: forest, notice, critters, play: () => ({ playing, hunt, controls, arms, fauna, solids }) } });
+  if (process.env.NODE_ENV !== 'production') Object.assign(window, { __forest: { camera, stages, size, scene, layers, fog: fog.material.uniforms, light, atmos, renderer, main, fogged, P, store: forest, critters, play: () => ({ playing, hunt, controls, arms, fauna, solids }) } });
 
   return {
     measure,
@@ -3732,12 +3323,6 @@ export function createForest(o: Opts) {
       ro.disconnect();
       window.removeEventListener('resize', onLayout);
       window.visualViewport?.removeEventListener('resize', onLayout);
-      document.removeEventListener('pointerover', onOver);
-      document.removeEventListener('pointerout', onOut);
-      document.removeEventListener('pointerdown', onDown);
-      document.removeEventListener('pointerup', onOver);
-      document.removeEventListener('focusin', onOver);
-      document.removeEventListener('focusout', onOut);
       scene.traverse((obj) => {
         const m = obj as THREE.Mesh;
         m.geometry?.dispose();

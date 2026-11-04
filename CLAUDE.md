@@ -19,27 +19,37 @@ old computer and the project discs, the cat's hollow (footer). Next.js 16, vanil
   the forest is ready. The user disliked a frozen snapshot of the scene (it looked weird on F5).
 - One real floor plane under the whole walk (no per-layer ground strips).
 - Trees are single sprites (`art/trees.ts`, five kinds) planted at real depths, batched per sprite. Leaves are stamped one by one.
-- Words in the forest (`src/scene/boards.ts`): the hero socials and the project panel are painted sharp and hung in 3D, drawn
-  in a full-resolution pass after the pixels, depth-tested against the forest. The page's real links (`data-pin`) ride on top.
-  The disc names are painted on each floppy's label in the same pass. The footer is plain page text.
-  On phones and tall windows (`!size.wide`) there are no words by the computer: the picked project's links are page
-  pixel buttons at the bottom of the screen (`#work-bar`, shown by the engine while you rest at the clearing).
-- Page elements pinned over the forest each frame: disc buttons and the project video on the monitor's glass.
-- Pill mode (`src/scene/play.ts`, `world.ts`, `art/gear.ts`): a second after you reach the cat she holds out a paw with a
-  pill ("Stay a while?" + Take, `components/Pill.tsx`). Take dissolves you into the meadow where the walk starts, free to
-  roam in first person inside an invisible fence (`BOUNDS`); the wood carries on past it into the fog. Done the 2.5D way:
+- The disc names are painted sharp on each floppy's label in a full-resolution pass after the pixels, depth-tested
+  against the forest. The footer is plain page text. The computer stands in the middle of the clearing.
+- Page elements pinned over the forest each frame: disc buttons, and the monitor's glass (`#pin-screen`).
+- The monitor is an old TV that's always on (`screenStatic` / `screenTune` in `art/props.ts`): dim static while it
+  waits; a disc tunes it in (the page fades up through matching static), and when the disc comes out the page
+  dissolves back into static. Keep it calm: no flashes, no switch-on lines, no cursor, no top-to-bottom wipes.
+  A flip inside is a faint grain over the whole screen, never full noise and never just the video.
+- The project lives on the screen (`components/ScreenPage.tsx`): a page in the page's own style (paper, Fraunces title
+  with the flourish, kicker, description, stack as paper tags, pixel buttons), title along the top, video left and
+  description right, prev/next + links along the bottom, Leave top right. It's laid out at the window's size and scaled
+  onto the glass (`--k`, `fitPage` in the engine), tuning in through static. Once a disc has booted the TV, `full` is set
+  and the camera dives into the glass (`leanIn`: a straight dolly, never a turn) until the glass covers the window and
+  the page is exactly the window. Flips swap the project on the page (the video tunes in afresh; the drive swaps the
+  disc unseen). Leave leans back out, then the disc comes out. Inside, the scroll holds still.
+- Pill mode (`src/scene/play.ts`, `world.ts`, `art/gear.ts`) is a secret: the only way in is typing `Enter.PillMode()` in
+  the browser console (`src/site/pill.ts`; no paw offer at the cat, no nav link). On load the console prints the secret
+  commands (`Enter.PillMode()`, `pill.cases()`, `pill.reset()`), never the points cheat `pill.points()`. From the console
+  there's no click to take the mouse, so you land on the pause screen ("Keep exploring"). It dissolves you into the meadow
+  where the walk starts, free to roam in first person inside an invisible fence (`BOUNDS`); the wood carries on past it into the fog. Done the 2.5D way:
   the camera only turns (yaw), every sprite turns with it (`view.yaw` in `gl.ts`), looking up/down is a projection shear
   so trees never lean. Secrets only there: a lake behind the start, a river down the far left, a pond with a fairy ring.
   Walk-only / play-only meshes are flagged `walkOnly` / `playOnly`; the walk must look exactly as it did.
   Favicons: cat (`app/icon.svg`), pill in pill mode.
 - In pill mode things are real 3D (`solid.ts`): trees are round trunks with crowns of leaf-clump cards, the stump is
-  lathed, the computer and notice board are their sprites pushed out into slabs (painted backs), floppies are flat boxes
+  lathed, the computer is its sprite pushed out into a slab (painted back), floppies are flat boxes
   with their names. Small things (grass, flowers, animals, the cat) stay sprites. Every sprite is lit as if it faced
   the sun (`view.lightYaw`), so the light never changes as you turn.
 - The rifle is a 3D model (`gun.ts`, no hands), its own pass laid over the view; right-click raises it to a realistic
   scope (scope pass in `play.ts`: tunnel-in, lens bend, colour fringe, scope shadow, glare, duplex reticle). The
   eyepiece shows the live view. Hits: hit marker, "+1" with the distance ("23m!"), the animal bursts into its own
-  pixels with cartoon-red spray (jam, not gore). The notice board and the monitor's glass can be shot to pieces.
+  pixels with cartoon-red spray (jam, not gore). The monitor's glass can be shot to pieces.
   E puts a floppy into the computer. You can wade into the water (rings, splashes).
 - Pill mode extras: leaves and bushes are 3D volumes (`foliage.ts`: lumpy cores + leaf-stamp cards fixed in 3D, chunked).
   A coarse second shadow map covers the whole roam (`shadowFar` in `gl.ts`), so far light matches near light.
@@ -53,9 +63,9 @@ old computer and the project discs, the cat's hollow (footer). Next.js 16, vanil
 
 ## The user's rules (keep this list current)
 - Professional, whimsical, hazy-film mood. Not gamey.
-- No glow, borders, cards, glassmorphism, eyebrows, dots, live clocks. One exception the user asked for: the project
-  text sits on a cottagecore notice board in the clearing (planks, shingled roof, posts in the grass, a cream note
-  with gingham tape and a flower sprig, dark ink) that slides in as you arrive and aside as you walk on (`boards.ts`).
+- No glow, borders, cards, glassmorphism, eyebrows, dots, live clocks. No notice board (removed on request).
+- Picking a disc dives INTO the screen: everything about the project is on the screen as one connected page (title
+  top, video left, description right, nav bottom). Never a separate overlay or a sheet floating apart from it.
 - Don't add elements or change the composition without asking. Screenshot every stop before reporting.
 - Exactly one light ray, the engine's own (not a sprite), onto the PC. User: "TOO MUCH LIGHT RAYS".
 - Grass in clumps beside the path, path clear, so the distance stays readable and the animals stand out.
@@ -76,14 +86,23 @@ old computer and the project discs, the cat's hollow (footer). Next.js 16, vanil
 - Social icons: each brand's real mark, flat cream on a dark disc (`content/icons.ts`), like a clean pixel logo.
 - Scrolling down into the clearing catches you softly (the camera rides a spring and bounces a little); the very next
   scroll goes on at once. Scrolling back up never catches. A finger's swipe or fling is caught too (next touch goes on).
-- On mobile, no 3D project text in the clearing: just Visit/Source buttons at the bottom.
 - Nothing in the page may be wider than the screen (a phone then loads zoomed out and the walk is measured wrong).
+- Phones (iOS worst): full-screen sticky stages are `100lvh + --bleed` (120px) tall, so the next section never shows
+  under them, not when the bar slides away and not behind iOS's floating see-through bar (which shows the page
+  further down than lvh). What's on them keeps to the top `100svh`. The forest canvas mirrors itself downward
+  (`-webkit-box-reflect`) so behind the bar there's wood, not a flat band. Scroll maths for a stage measure the
+  stage, not `innerHeight` (it changes with the bar). The clearing's measuring strip (`.work-stick`) stays svh.
 - Pill mode menus (Esc, shop, cases) are the page's doodles on paper: pale paper, pen outline, hatched shadow, gingham
   tape, dark ink text, pixel touches. Readability first. No key-hint lines above the hotbar, no arrow/tutorial to Mira.
-- Buttons (page, board, menus): pale paper, pixel ink outline; on hover they grow pixel moss with flowers. Dark
+- Buttons (page, screen, menus): pale paper, pixel ink outline; on hover they grow pixel moss with flowers. Dark
   buttons stay dark on hover (deep moss green), never pale.
 - Weapon pixels must never crawl or swim; nothing may show a cut edge when the weapon moves.
 - Footsteps: one soft grass step (snow in winter), once per stride.
+- The About section has a stay: its words hold still (sticky) a while before the tech stack's paper rises over them.
+- Tech stack (`components/site/Crew.tsx`): 3D & motion, Everyday apps, Servers & data, Mods & hardware. WebGL, GLSL,
+  React Three Fiber, Ollama, Kotlin, Fabric, Shaders and Physics were taken out on request; don't bring them back.
+- Pill mode is entered only by the console command `Enter.PillMode()`; the cat doesn't hold out her paw. The console's
+  list of secrets (shown when DevTools opens) leaves out the money cheat.
 
 ## Scripts
 - `npm run dev`, `npm run build`, `npm run lint` (tsc).

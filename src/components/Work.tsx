@@ -3,64 +3,47 @@
 import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { projects } from '@/content/projects';
 import { forest } from '@/scene/store';
+import ScreenPage from './ScreenPage';
 
 const subscribe = forest.subscribe;
 const get = forest.get;
 
 /**
- * The clearing. The discs, the computer and the man are drawn by the forest; this is everything laid
- * over them (moved into place every frame): buttons on the discs with their labels, the project video
- * on the monitor's glass, the photo the man wears as a mask, and the words (or, on phones, only the links).
+ * The clearing. The discs and the computer are drawn by the forest; this is everything laid over them (moved into
+ * place every frame): buttons on the discs, and the project's page on the monitor's glass (`ScreenPage`). Once a
+ * disc has booted the monitor, the forest dives into the glass until that page fills the window.
  */
 export default function Work() {
   const state = useSyncExternalStore(subscribe, get, get);
-  const shown = state.selected === null ? null : projects[state.selected];
-  const playing = state.loaded === null ? null : projects[state.loaded];
-  const video = useRef<HTMLVideoElement>(null);
+  const glass = useRef<HTMLDivElement>(null);
 
+  // the static the page tunes in through: a tile of it, painted once, as dim as the glass's own waiting static
   useEffect(() => {
-    const v = video.current;
-    if (!v) return;
-    if (playing) v.play().catch(() => {});
-    else v.pause();
-  }, [playing]);
+    const el = glass.current;
+    if (!el) return;
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    if (!g) return;
+    const img = g.createImageData(128, 128);
+    let seed = 9091;
+    for (let i = 0; i < 128 * 128; i++) {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      const n = seed / 4294967296;
+      const v = Math.min(1, 0.05 + n * n * 0.45);
+      img.data.set([16 + v * 214, 22 + v * 222, 18 + v * 206, 255], i * 4);
+    }
+    g.putImageData(img, 0, 0);
+    el.style.setProperty('--static', `url(${c.toDataURL()})`);
+  }, []);
 
   return (
     <section className="work" data-stage="work" aria-labelledby="work-title">
-      <div className="work-stick">
-        <div className="work-text" aria-live="polite">
-          {shown ? (
-
-            <article key={shown.slug} className="project">
-              <h2 id="work-title">{shown.title}</h2>
-              <p className="kicker">{shown.kicker}</p>
-              <p className="desc">{shown.description}</p>
-              <p className="stack">{shown.stack.join(' · ')}</p>
-              <p className="links">
-                {shown.links.map((l, i) => (
-                  <a key={l.href} href={l.href} target="_blank" rel="noreferrer" data-pin={`work-link${i}`} data-show="false">
-                    {l.label}
-                  </a>
-                ))}
-              </p>
-            </article>
-          ) : (
-            <div className="intro">
-              <h2 id="work-title">Selected work</h2>
-              <p>Pick up a disc to load it.</p>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* where there's no room for the notice board (phones, squarish windows): just the links, at the bottom */}
-      <p id="work-bar" className="work-bar" data-show="false">
-        {shown?.links.map((l) => (
-          <a key={l.href} href={l.href} target="_blank" rel="noreferrer" className="pixel-btn" aria-label={`${shown.title}: ${l.label}`}>
-            {l.label}
-          </a>
-        ))}
-      </p>
+      <h2 id="work-title" className="sr-only">
+        Selected work
+      </h2>
+      {/* one screen tall (svh): the forest measures the clearing's stay by it */}
+      <div className="work-stick" aria-hidden="true" />
 
       <div id="discs" className="discs" data-active="false">
         {projects.map((p, i) => (
@@ -75,24 +58,14 @@ export default function Work() {
             onFocus={() => forest.set({ hovered: i })}
             onBlur={() => forest.get().hovered === i && forest.set({ hovered: null })}
             onClick={() => forest.set({ selected: state.selected === i ? null : i })}
-          >
-          </button>
+          ></button>
         ))}
       </div>
 
-      <div id="pin-screen" className="pin pin-screen" data-show="false" aria-hidden="true">
-        <video
-          ref={video}
-          key={playing?.slug ?? 'none'}
-          src={playing ? `/work/${playing.slug}.mp4` : undefined}
-          muted
-          loop
-          playsInline
-          autoPlay
-          preload="none"
-        />
+      {/* the monitor's glass: the project's page, scaled onto it (the forest dives into it to read it) */}
+      <div ref={glass} id="pin-screen" className="pin pin-screen" data-show="false">
+        <ScreenPage />
       </div>
-
     </section>
   );
 }

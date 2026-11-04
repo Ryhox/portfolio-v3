@@ -4,6 +4,7 @@ import Lenis from 'lenis';
 import { useEffect, useRef, useState } from 'react';
 import { createForest } from '@/scene/engine';
 import { forest } from '@/scene/store';
+import { installSecrets } from '@/site/pill';
 import { seasonStore } from '@/site/season';
 import { setScroller } from '@/site/scroll';
 import { sfx } from '@/sound/sfx';
@@ -102,22 +103,29 @@ export default function Forest() {
     start();
     const unseason = seasonStore.subscribe(start);
     if (process.env.NODE_ENV !== 'production') Object.assign(window, { __lenis: lenis });
+    // pill mode is a secret: only `Enter.PillMode()` in the console gets you in (DevTools lists the secrets)
+    installSecrets();
     // pill mode: the page steps aside, the scroll stops where it is, and the tab shows the pill
+    // (inside the monitor's screen, the scroll holds still too)
     let wasPlaying = false;
+    let wasStill = false;
     const unplay = forest.subscribe(() => {
-      const { playing, paused } = forest.get();
+      const { playing, paused, full } = forest.get();
       const root = document.documentElement;
       if (playing && paused) root.dataset.paused = '';
       else delete root.dataset.paused;
+      if (full && !playing) root.dataset.full = '';
+      else delete root.dataset.full;
+      const still = playing || full;
+      if (still !== wasStill) {
+        wasStill = still;
+        if (still) lenis?.stop();
+        else lenis?.start();
+      }
       if (playing === wasPlaying) return;
       wasPlaying = playing;
-      if (playing) {
-        root.dataset.play = '';
-        lenis?.stop();
-      } else {
-        delete root.dataset.play;
-        lenis?.start();
-      }
+      if (playing) root.dataset.play = '';
+      else delete root.dataset.play;
       for (const l of document.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]')) {
         l.dataset.walk ??= l.href;
         l.href = playing ? '/icon-pill.svg' : l.dataset.walk;

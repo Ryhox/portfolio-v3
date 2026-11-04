@@ -11,7 +11,7 @@ import type { Pix } from '../pix';
 import { floorLitter, floorPattern, floorRamps } from './floor';
 import { edgeTree, type Layer } from './forest';
 import { bushSprite, TREE_D, TREE_SET, treeSprite } from './trees';
-import { catPawSprite, catSprite, computerSprite, discSprite, hollowStump, hollowWall, keyboardSprite } from './props';
+import { catSprite, computerSprite, discSprite, hollowStump, hollowWall, keyboardSprite } from './props';
 import { roofMask } from './roof';
 import { atlas, critterSprites, floraFor } from './sprites';
 
@@ -90,8 +90,6 @@ const groups: (() => void)[][] = [
       layer('stump', st, { catAt: st.catAt });
       send('catOpen', catSprite(false));
       send('catShut', catSprite(true));
-      send('catPaw0', catPawSprite(0));
-      send('catPaw1', catPawSprite(1));
     },
     // the swirl of leaves behind the cat
     () => {

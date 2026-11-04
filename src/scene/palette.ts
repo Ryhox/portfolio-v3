@@ -66,7 +66,7 @@ const summer = {
   /** How many of a crown's clumps take the second ramp, and how full the crowns are (0 bare … 1 full). */
   mix: 0,
   fullness: 1,
-  /** Moss cushions on things (the computer, the notice board). */
+  /** Moss cushions on things (the computer). */
   cushion: ramp('#1c301b', '#28411f', '#365727', '#486d30', '#5e853a', '#7c9c4b', '#a3b866'),
   /** Ivy and creeper. */
   vine: ramp('#122a18', '#1a3a1f', '#244c26', '#30602e', '#417436'),
