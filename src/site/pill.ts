@@ -15,7 +15,7 @@ export function lockPointer() {
 const say = (bold: string, rest: string) => console.log(`%c${bold} %c${rest}`, 'font-weight:700;color:#4f7a3a', 'color:inherit');
 
 /**
- * Pill mode is a secret: the only way in is `Enter.PillMode()` in the console. Typed there, the page has no click
+ * Pill mode is a secret: the only way in is `pill.enter()` in the console. Typed there, the page has no click
  * to take the mouse with, so you land on the pause screen and its button lets you into the wood.
  */
 function enterPillMode() {
@@ -28,19 +28,20 @@ function enterPillMode() {
 }
 
 /**
- * The console's secrets: puts `Enter.PillMode()` on the window and leaves a note for whoever opens DevTools,
- * listing the secret commands. The points cheat (`pill.points`) is left off on purpose: that one is for finding.
+ * The console's secrets: puts `pill.enter()` on the window (beside the wallet's cheats on `pill`) and leaves a note
+ * for whoever opens DevTools, listing the secret commands. The cheats (`pill.points`, `pill.cases`) are left off on
+ * purpose: those are for finding.
  */
 let told = false;
 export function installSecrets() {
-  Object.assign(window, { Enter: { PillMode: enterPillMode } });
+  const w = window as unknown as { pill?: object };
+  w.pill = Object.assign(w.pill ?? {}, { enter: enterPillMode });
   if (told) return;
   told = true;
   console.log(
     '%cPsst. %cA few secret commands, for whoever looks in here:\n\n' +
-      '  Enter.PillMode()   take the pill and wander the wood\n' +
-      "  pill.cases(3)      a few Meadow Cases for Mira's stall\n" +
-      '  pill.reset()       empty your pockets and start over',
+      '  pill.enter()   take the pill and wander the wood\n' +
+      '  pill.reset()   empty your pockets and start over',
     'font-weight:700;color:#4f7a3a',
     'color:inherit',
   );

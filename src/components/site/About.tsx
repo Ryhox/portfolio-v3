@@ -1,11 +1,26 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { sfx } from '@/sound/sfx';
-import { CatOnPillow } from './Ink';
+import { useEffect, useRef } from 'react';
+import PokeCat from './PokeCat';
 import AboutVine from './Vine';
 
 const TITLE = 'I build playful, tactile things for the web.';
+/** A phrase picked out with the marker; `i` is its turn as the strokes draw in, one after another. */
+const Hl = ({ i, children }: { i: number; children: React.ReactNode }) => (
+  <mark className="hl" style={{ '--i': i } as React.CSSProperties}>
+    {children}
+  </mark>
+);
+
+/** A few words, skimmable: what matters picked out with a marker, and the invitation underlined in red pen. */
+const LEAD = (
+  <>
+    I’m a <Hl i={0}>student in South Tyrol</Hl>, and for the last few years I’ve been teaching myself to build for the web.
+    Mostly <Hl i={1}>real-time 3D worlds</Hl> and <Hl i={2}>apps people use every day</Hl>, and now and then an experiment
+    that turns into a toy. I like leaving <Hl i={3}>small secrets</Hl> in my work for whoever goes looking. If you have
+    something in mind, <span className="pen">I’d be glad to hear about it</span>.
+  </>
+);
 
 /**
  * Who this is, in the evening that flooded out of the name: one big line whose letters stand up in 3D as you read
@@ -14,7 +29,27 @@ const TITLE = 'I build playful, tactile things for the web.';
 export default function About() {
   const sec = useRef<HTMLElement>(null);
   const title = useRef<HTMLHeadingElement>(null);
-  const [poked, setPoked] = useState(0);
+  const lead = useRef<HTMLParagraphElement>(null);
+
+  // the marker sweeps over the words once they've come into focus, and wipes off when you scroll back above them
+  // (a gap between the two, so it doesn't flicker on the edge)
+  useEffect(() => {
+    const p = lead.current;
+    if (!p) return;
+    let on: boolean | null = null;
+    let raf = 0;
+    const frame = () => {
+      raf = requestAnimationFrame(frame);
+      const top = p.getBoundingClientRect().top;
+      const vh = window.innerHeight;
+      const next = top < vh * 0.7 ? true : top > vh * 0.92 ? false : on;
+      if (next === null || next === on) return;
+      on = next;
+      p.dataset.in = String(on);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, []);
 
   // the letters of the big line stand up off their baseline one after another as the scroll passes them, swelling
   // from a hairline to their weight as they rise (Fraunces is a variable font)
@@ -70,26 +105,10 @@ export default function About() {
           ))}
         </h2>
         <div className="about-cols">
-          <p className="lead" data-reveal>
-            Ryhox is a web developer and Three.js engineer. Real-time 3D worlds, everyday apps, private AI and Minecraft mods, all built by hand.
+          <p ref={lead} className="lead" data-reveal>
+            {LEAD}
           </p>
-          <button
-            type="button"
-            className="about-cat"
-            aria-label="The black cat, asleep on her cushion. Pet her."
-            data-reveal
-            onClick={() => {
-              setPoked((n) => n + 1);
-              sfx.play('meow', { rate: 0.9 + Math.random() * 0.3 });
-            }}
-          >
-            <CatOnPillow key={poked} stirred={poked > 0} />
-            <span className="about-z" aria-hidden="true">
-              <i>z</i>
-              <i>z</i>
-              <i>z</i>
-            </span>
-          </button>
+          <PokeCat data-reveal />
         </div>
       </div>
     </section>

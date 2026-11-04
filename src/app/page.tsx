@@ -10,6 +10,7 @@ import Crew from '@/components/site/Crew';
 import Intro from '@/components/site/Intro';
 import Nav from '@/components/site/Nav';
 import SiteFx from '@/components/site/SiteFx';
+import { homeGraph, ld } from '@/content/schema';
 import { site } from '@/content/site';
 
 /**
@@ -20,6 +21,7 @@ import { site } from '@/content/site';
 export default function Home() {
   return (
     <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ld(homeGraph()) }} />
       <Forest />
       <Nav />
       <Loader />

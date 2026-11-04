@@ -15,6 +15,19 @@
   box-sizing: border-box;
 }
 
+/* selected text: moss green with cream on the light pages, warm ochre (like the About's marker) on the dark ones */
+::selection {
+  background: #3f7a34;
+  color: #f6f1e2;
+}
+
+.about ::selection,
+.end ::selection,
+.legal ::selection {
+  background: #d9b44a;
+  color: #231c18;
+}
+
 html {
   background: #59684c;
   color: var(--ink);
@@ -778,8 +791,184 @@ html[data-full] .sp-text {
   }
 }
 
+/* a project's own page (/projects/<slug>): first the monitor's page as it is once you've dived into the glass (the
+   window itself, without the screen's scanlines), then everything else about it in words on the same paper; the pen
+   draws the flourish and the words come up as it opens */
+html:has(.project-page),
+body:has(.project-page) {
+  background: var(--paper);
+}
+
+.project-page {
+  color: var(--ink);
+  background: var(--paper);
+}
+
+.project-screen {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100svh;
+  min-height: 540px;
+  padding: clamp(16px, 3.4svh, 40px) clamp(18px, 4.5vw, 72px) max(clamp(16px, 3.4svh, 36px), env(safe-area-inset-bottom));
+}
+
+.project-more {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: clamp(36px, 7svh, 80px) clamp(18px, 4.5vw, 72px) clamp(56px, 11svh, 120px);
+}
+
+/* the flourish again, as a divider (drawn, not drawing) */
+.pm-flourish {
+  display: block;
+  width: clamp(150px, 16vw, 230px);
+  height: auto;
+  margin: 0 auto clamp(30px, 6svh, 60px);
+  overflow: visible;
+  color: var(--ink);
+}
+
+.pm-flourish path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6px;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.pm-flourish .rule-dots {
+  fill: currentColor;
+}
+
+.pm-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: clamp(26px, 4vw, 64px);
+}
+
+.project-more h2 {
+  margin: 0 0 0.7rem;
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: clamp(1.3rem, 1.9vw, 1.7rem);
+  line-height: 1.1;
+  font-variation-settings: 'SOFT' 100, 'opsz' 48;
+  color: var(--ink);
+}
+
+.project-more :is(p, li) {
+  margin: 0;
+  font-family: var(--text);
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.project-more ul {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.project-more a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.pm-more {
+  margin-top: clamp(40px, 7svh, 76px);
+}
+
+/* the other projects: each its title and its line, the pen underlining the one you point at */
+.project-more .pm-list {
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 18px 32px;
+}
+
+.pm-list a {
+  display: grid;
+  gap: 2px;
+  text-decoration: none;
+}
+
+.pm-list b {
+  font-family: var(--display);
+  font-weight: 400;
+  font-size: 1.3rem;
+  line-height: 1.15;
+  color: var(--ink);
+  text-decoration: underline transparent;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+  transition: text-decoration-color 0.2s ease;
+}
+
+.pm-list a:is(:hover, :focus-visible) b {
+  text-decoration-color: currentColor;
+}
+
+.pm-list span {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 0.98rem;
+  color: var(--acc);
+  font-variation-settings: 'SOFT' 100, 'opsz' 24;
+}
+
+@media (max-width: 760px) {
+  .pm-cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+.project-page .sp-flourish path {
+  animation: rule 1s cubic-bezier(0.45, 0, 0.25, 1) 0.3s both;
+}
+
+.project-page .sp-flourish .rule-dots {
+  animation: dots-in 0.5s ease 0.25s both;
+}
+
+.project-page :is(.sp-head, .sp-text) {
+  animation: sp-words 0.55s var(--out-expo) both;
+}
+
+.project-page .sp-text {
+  animation-delay: 0.06s;
+}
+
+.project-page .sp-frame {
+  animation: sp-fade 0.45s ease-out both;
+}
+
+/* who made it: a quiet line under the tags */
+.sp-by {
+  margin: 6px 0 0;
+  max-width: 30rem;
+  font-family: var(--text);
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+.sp-by a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
 /* phones and tall windows: the video over the words, all down the middle */
 @media (max-aspect-ratio: 1/1) {
+  .project-screen {
+    height: auto;
+    min-height: 100svh;
+  }
   .sp-head {
     padding: 0 84px;
   }
@@ -816,7 +1005,8 @@ html[data-full] .sp-text {
 
 @media (prefers-reduced-motion: reduce) {
   .sp-static,
-  html[data-full] :is(.sp-head, .sp-text, .sp-flourish path, .sp-flourish .rule-dots) {
+  html[data-full] :is(.sp-head, .sp-text, .sp-flourish path, .sp-flourish .rule-dots),
+  .project-page :is(.sp-head, .sp-text, .sp-frame, .sp-flourish path, .sp-flourish .rule-dots) {
     animation-duration: 0.01s;
     animation-delay: 0s;
   }
@@ -833,6 +1023,91 @@ html[data-full] .sp-text {
 /* a finger's fling into the clearing is caught there: the page stops scrolling for a moment, which ends it */
 html[data-caught] {
   overflow: hidden;
+}
+
+/* the 404: lost in the wood, a pen doodle of a signpost on the page's paper, the cat asleep at its foot */
+html:has(.nf),
+body:has(.nf) {
+  background: var(--paper);
+}
+
+.nf {
+  min-height: 100svh;
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  padding: clamp(28px, 6svh, 64px) 16px;
+  text-align: center;
+  color: var(--ink);
+}
+
+.nf-scene {
+  position: relative;
+  width: min(720px, 100%);
+}
+
+.nf-scene svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.nf-sign-big {
+  font-family: var(--font-hand), cursive;
+  font-weight: 700;
+  font-size: 34px;
+}
+
+.nf-sign {
+  font-family: var(--font-hand), cursive;
+  font-weight: 600;
+  font-size: 19px;
+}
+
+/* the wood's pixel trees, standing on the doodle's ground behind its ink: each canvas is its sprite at --s CSS px
+   per art pixel (a whole number of device pixels), its trunk (--ax) at --x% across */
+.nf-scene svg {
+  position: relative;
+  z-index: 1;
+}
+
+.nf-trees {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.nf-tree {
+  position: absolute;
+  left: calc(var(--x) * 1% - var(--ax) * var(--s, 1) * 1px);
+  bottom: calc(var(--ground) * 1%);
+  width: calc(var(--w) * var(--s, 1) * 1px);
+  height: calc(var(--h) * var(--s, 1) * 1px);
+  image-rendering: pixelated;
+}
+
+.nf-title {
+  margin: clamp(14px, 3svh, 28px) 0 0;
+  font-family: var(--display);
+  font-weight: 380;
+  font-size: clamp(2.4rem, 6vw, 4.4rem);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variation-settings: 'SOFT' 100, 'opsz' 144;
+}
+
+.nf .nf-flourish {
+  margin: 8px auto 16px;
+}
+
+.nf-lead {
+  max-width: 30rem;
+  margin: 0 0 24px;
+  font-family: var(--text);
+  font-size: 1.08rem;
+  line-height: 1.6;
+  color: var(--ink-soft);
 }
 
 /* the legal pages: plain reading on the dark of the wood */

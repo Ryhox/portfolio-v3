@@ -4,20 +4,12 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import { projects } from '@/content/projects';
 import { forest } from '@/scene/store';
 import { sfx } from '@/sound/sfx';
+import Chevron from './site/Chevron';
 import { FlourishPaths } from './site/Flourish';
 
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
 /** How long the forest takes to lean back out of the screen (`leanIn` in the engine), before the disc comes out. */
 const LEAN_OUT_MS = 820;
-
-/** A pixel chevron for the prev/next buttons, pointing left (or right, flipped). */
-function Chevron({ flip = false }: { flip?: boolean }) {
-  return (
-    <svg className="sp-chev" viewBox="0 0 5 7" shapeRendering="crispEdges" aria-hidden="true" style={flip ? { scale: '-1 1' } : undefined}>
-      <path d="M3 0h1v1H3zM2 1h1v1H2zM1 2h1v1H1zM0 3h1v1H0zM1 4h1v1H1zM2 5h1v1H2zM3 6h1v1H3z" fill="currentColor" />
-    </svg>
-  );
-}
 
 /**
  * The page on the monitor's glass, for the picked project: its title along the top, its video on the left and what it

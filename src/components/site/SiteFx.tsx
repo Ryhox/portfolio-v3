@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { sfx } from '@/sound/sfx';
 import { artPx } from '@/site/paint/canvas';
+import { watchTitle } from '@/site/title';
 
 /**
  * The page's own little machinery: words that come into focus as you reach them, the sheet the crew rises on, and
@@ -52,6 +53,9 @@ export default function SiteFx() {
     document.documentElement.dataset.fx = 'on';
     return () => cancelAnimationFrame(raf);
   }, []);
+
+  // the tab's title follows the walk (and says something when you tab away)
+  useEffect(() => watchTitle(), []);
 
   useEffect(() => {
     let typed = '';

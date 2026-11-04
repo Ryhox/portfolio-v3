@@ -35,9 +35,9 @@ old computer and the project discs, the cat's hollow (footer). Next.js 16, vanil
   disc unseen). Leave leans back out, then the disc comes out. Inside, the scroll holds still and the top bar hides.
   A disc picked from a little off the computer glides the page there first (`toComputer` in `Work.tsx`), so the dive
   comes right away; a pick you scrolled away from never dives in later on its own; clicking the glass dives in.
-- Pill mode (`src/scene/play.ts`, `world.ts`, `art/gear.ts`) is a secret: the only way in is typing `Enter.PillMode()` in
+- Pill mode (`src/scene/play.ts`, `world.ts`, `art/gear.ts`) is a secret: the only way in is typing `pill.enter()` in
   the browser console (`src/site/pill.ts`; no paw offer at the cat, no nav link). On load the console prints the secret
-  commands (`Enter.PillMode()`, `pill.cases()`, `pill.reset()`), never the points cheat `pill.points()`. From the console
+  commands (`pill.enter()`, `pill.reset()`), never the cheats `pill.points()` / `pill.cases()`. From the console
   there's no click to take the mouse, so you land on the pause screen ("Keep exploring"). It dissolves you into the meadow
   where the walk starts, free to roam in first person inside an invisible fence (`BOUNDS`); the wood carries on past it into the fog. Done the 2.5D way:
   the camera only turns (yaw), every sprite turns with it (`view.yaw` in `gl.ts`), looking up/down is a projection shear
@@ -108,8 +108,22 @@ old computer and the project discs, the cat's hollow (footer). Next.js 16, vanil
   the words and ends just above the tech stack's paper.
 - Tech stack (`components/site/Crew.tsx`): 3D & motion, Everyday apps, Servers & data, Mods & hardware. WebGL, GLSL,
   React Three Fiber, Ollama, Kotlin, Fabric, Shaders and Physics were taken out on request; don't bring them back.
-- Pill mode is entered only by the console command `Enter.PillMode()`; the cat doesn't hold out her paw. The console's
-  list of secrets (shown when DevTools opens) leaves out the money cheat.
+- Pill mode is entered only by the console command `pill.enter()`; the cat doesn't hold out her paw. The console's
+  list of secrets (shown when DevTools opens) leaves out the cheats (`pill.points`, `pill.cases`).
+- The tab's title follows the walk (`src/site/title.ts`): the section you're in, the project on the screen, pill mode,
+  and a note when you tab away.
+- The About's cat (`CatOnPillow` in `components/site/Ink.tsx`): no z's. Poked, she hops, a "!" pops over her head, she
+  opens one eye, then it droops shut and she sleeps on.
+- The About's paragraph is first person, quiet (written with the user from their answers). Key phrases get a low ochre
+  marker stroke under the words (never a band behind them: "too glowy"), the invitation a wavy red-pen underline.
+- Text selection: moss green with cream on light pages, ochre with dark text on dark ones (About, footer, reading pages).
+- SEO (`content/site.ts`, `schema.ts`, `about.ts`, `llms.ts`): canonical is https://www.ryhox.dev (the host sends
+  ryhox.dev there). One Person + WebSite JSON-LD on every page; "Who is Ryhox?" Q&A at `/about` (FAQ data = the visible
+  text); a page per project at `/projects/<slug>`, designed exactly like the monitor's page once you've dived in (same
+  `.sp-*` classes: title + flourish, video left, kicker/description/tags right, prev/next as links to the neighbours,
+  Visit/Source, Leave → the forest; plus a quiet "Made by Ryhox" line to `/about`; ← → Esc work); robots welcomes AI crawlers by name; sitemap, manifest, `/llms.txt`,
+  `/llms-full.txt`. `/about` is NOT linked from the site's own pages (on request); no real name anywhere, only "Ryhox".
+  Share images: `npm run og` (site running) remakes `app/opengraph-image.png` and `public/og/<slug>.jpg`.
 
 ## Scripts
 - `npm run dev`, `npm run build`, `npm run lint` (tsc).

@@ -95,20 +95,20 @@ export const purse = {
 };
 
 // the console's cheats: `pill.points(10000)` for points, `pill.cases(3)` for Meadow Cases, `pill.reset()` to start over
+// (added to `pill`, not replacing it: `pill.enter()` lives there too, from site/pill.ts)
 if (typeof window !== 'undefined') {
-  Object.assign(window, {
-    pill: {
-      points: (n = 10000) => {
-        const total = purse.cheat(n);
-        console.log(`%cCaught ya, cheater! %cBut it's fine. You've got ${total.toLocaleString('en-US')} points now.`, 'font-weight:700;color:#c0503a', 'color:inherit');
-        return total;
-      },
-      cases: (n = 1) => {
-        for (let i = 0; i < n; i++) wallet.set((s) => ({ cases: [...s.cases, { uid: uid(), kind: 'meadow' as const }] }));
-        return wallet.get().cases.length;
-      },
-      reset: () => wallet.reset(),
-      ...(process.env.NODE_ENV !== 'production' ? { _wallet: wallet, _purse: purse } : {}),
+  const w = window as unknown as { pill?: object };
+  w.pill = Object.assign(w.pill ?? {}, {
+    points: (n = 10000) => {
+      const total = purse.cheat(n);
+      console.log(`%cCaught ya, cheater! %cBut it's fine. You've got ${total.toLocaleString('en-US')} points now.`, 'font-weight:700;color:#c0503a', 'color:inherit');
+      return total;
     },
+    cases: (n = 1) => {
+      for (let i = 0; i < n; i++) wallet.set((s) => ({ cases: [...s.cases, { uid: uid(), kind: 'meadow' as const }] }));
+      return wallet.get().cases.length;
+    },
+    reset: () => wallet.reset(),
+    ...(process.env.NODE_ENV !== 'production' ? { _wallet: wallet, _purse: purse } : {}),
   });
 }

@@ -97,8 +97,14 @@ export function CatOnPillow({ stirred = false }: { stirred?: boolean }) {
           {/* inside the ears */}
           <path d="M21.5 14.5l2.5 5M45 14l-2 5.5" strokeWidth="1.2" opacity="0.7" />
           {/* eyes shut, and whiskers */}
-          <path d="M21 39q3 2.4 6 0M32 39q3 2.4 6 0" strokeWidth="1.5" />
+          <path d="M21 39q3 2.4 6 0" strokeWidth="1.5" />
+          <path className="cat-lid" d="M32 39q3 2.4 6 0" strokeWidth="1.5" />
           <path d="M18 46c-6 0-11 1-15 3M18 48c-6 2-10 4-13 7M40 46c6 0 11 1 15 3M40 48c6 2 10 4 13 7" strokeWidth="0.7" opacity="0.7" />
+        </g>
+        {/* poked, she opens one eye to see who it is, then goes back to sleep */}
+        <g className="cat-eye">
+          <path d="M31.6 39.4q3.4-3.6 6.8 0q-3.4 2.6-6.8 0z" fill="#d9b13c" stroke={PALE} strokeWidth="0.9" strokeLinejoin="round" />
+          <ellipse cx="35.1" cy="39" rx="0.75" ry="1.45" fill={INK} />
         </g>
         <path d="M28 45l1.6 1.4 1.6-1.4" fill="none" stroke="#d48f98" strokeWidth="1.3" strokeLinecap="round" />
       </g>

@@ -103,7 +103,7 @@ export default function Forest() {
     start();
     const unseason = seasonStore.subscribe(start);
     if (process.env.NODE_ENV !== 'production') Object.assign(window, { __lenis: lenis });
-    // pill mode is a secret: only `Enter.PillMode()` in the console gets you in (DevTools lists the secrets)
+    // pill mode is a secret: only `pill.enter()` in the console gets you in (DevTools lists the secrets)
     installSecrets();
     // pill mode: the page steps aside, the scroll stops where it is, and the tab shows the pill
     // (inside the monitor's screen, the scroll holds still too)

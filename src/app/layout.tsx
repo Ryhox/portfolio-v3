@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Caveat, Fraunces, Instrument_Sans, Pixelify_Sans } from 'next/font/google';
-import { absoluteUrl, site } from '@/content/site';
+import { ld, siteGraph } from '@/content/schema';
+import { site } from '@/content/site';
 import './globals.css';
 import './site.css';
 import './play.css';
@@ -38,12 +39,32 @@ export const metadata: Metadata = {
   applicationName: 'Ryhox',
   authors: [{ name: site.name, url: site.url }],
   creator: site.name,
-  keywords: ['Ryhox', 'Ryhox developer', 'Ryhox portfolio', 'creative developer', 'Three.js developer', 'WebGL developer', 'pixel art'],
-  openGraph: { type: 'website', siteName: 'Ryhox', locale: 'en_US', title: site.title, description: site.description },
+  publisher: site.name,
+  category: 'technology',
+  keywords: [
+    'Ryhox',
+    'who is Ryhox',
+    'Ryhox developer',
+    'Ryhox portfolio',
+    'Ryhox web developer',
+    'Ryhox Three.js',
+    'Ryhox South Tyrol',
+    'Ryhox Südtirol',
+    'web developer South Tyrol',
+    'Three.js developer',
+    'creative developer',
+    'pixel art portfolio',
+  ],
+  openGraph: { type: 'website', siteName: 'Ryhox', locale: 'en_US', url: '/', title: site.title, description: site.description },
   twitter: { card: 'summary_large_image', title: site.title, description: site.description },
-  robots: { index: true, follow: true },
+  robots: { index: true, follow: true, googleBot: { index: true, follow: true, 'max-image-preview': 'large', 'max-snippet': -1, 'max-video-preview': -1 } },
   alternates: { canonical: '/' },
   formatDetection: { telephone: false, email: false, address: false },
+  // Search Console / Bing Webmaster Tools: put their verification codes in the hosting env (only the code, not the tag)
+  verification: {
+    google: process.env.GOOGLE_SITE_VERIFICATION || undefined,
+    other: process.env.BING_SITE_VERIFICATION ? { 'msvalidate.01': process.env.BING_SITE_VERIFICATION } : undefined,
+  },
 };
 
 export const viewport: Viewport = {
@@ -52,20 +73,6 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
-};
-
-const person = {
-  '@context': 'https://schema.org',
-  '@type': 'Person',
-  '@id': absoluteUrl('/#ryhox'),
-  name: site.name,
-  url: absoluteUrl('/'),
-  jobTitle: site.jobTitle,
-  description: site.description,
-  disambiguatingDescription: site.disambiguation,
-  email: `mailto:${site.email}`,
-  knowsAbout: site.knowsAbout,
-  sameAs: site.socials.map((s) => s.href),
 };
 
 const PIXEL_SIZE = `(function(){var d=document.documentElement,r=Math.min(window.devicePixelRatio||1,3),w=Math.round(innerWidth*r),h=Math.round(innerHeight*r),s=Math.max(1,Math.round(Math.min(w,h)/250));d.style.setProperty('--px',s/r+'px');d.dataset.shape=Math.ceil(w/s)/Math.ceil(h/s)>1.15?'wide':'tall';var q=null;try{q=new URLSearchParams(location.search).get('season')||sessionStorage.getItem('season')}catch(e){}var m=new Date().getMonth();d.dataset.season=/^(spring|summer|autumn|winter)$/.test(q||'')?q:m==11||m<2?'winter':m<5?'spring':m<8?'summer':'autumn';})();`;
@@ -78,7 +85,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: PIXEL_SIZE }} />
       </head>
       <body>
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(person).replace(/</g, '\\u003c') }} />
+        {/* who Ryhox is and which site this is, on every page (the pages add their own part, pointing at these) */}
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ld(siteGraph()) }} />
         {children}
       </body>
     </html>

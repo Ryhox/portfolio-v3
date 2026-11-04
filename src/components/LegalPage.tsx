@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
-/** A plain reading page for the legal bits: a way back, the title, the text. */
-export default function LegalPage({ title, lead, updated, children }: { title: string; lead: string; updated: string; children: React.ReactNode }) {
+/** A plain reading page (the legal bits, Who is Ryhox, the projects): a way back, the title, the text. */
+export default function LegalPage({ title, lead, updated, children }: { title: string; lead: string; updated?: string; children: React.ReactNode }) {
   return (
     <main className="legal">
       <Link href="/" className="legal-back">
@@ -10,7 +10,7 @@ export default function LegalPage({ title, lead, updated, children }: { title: s
       <h1>{title}</h1>
       <p className="legal-lead">{lead}</p>
       {children}
-      <p className="legal-updated">Last updated {updated}</p>
+      {updated ? <p className="legal-updated">Last updated {updated}</p> : null}
     </main>
   );
 }
