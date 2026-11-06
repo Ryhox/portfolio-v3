@@ -35,6 +35,7 @@ export default function Intro() {
     let visible = true;
     let popped = -1;
     let lastClip = '';
+    let lastHint = '';
     const make = () => {
       try {
         word?.dispose();
@@ -68,8 +69,9 @@ export default function Intro() {
       if (clip !== lastClip) panel.style.clipPath = lastClip = clip;
       // the hint to scroll goes as soon as you do
       const h = hint.current;
+      // (compared with what was last set: the style reads back "1" for "1.000", which re-set it every frame)
       const ho = (1 - clamp01(p / 0.04)).toFixed(3);
-      if (h && h.style.opacity !== ho) h.style.opacity = ho;
+      if (h && ho !== lastHint) h.style.opacity = lastHint = ho;
     };
     // the fonts first, so the word is cut from the real letters
     let alive = true;
@@ -79,7 +81,11 @@ export default function Intro() {
       soon = window.setTimeout(() => {
         if (!alive) return;
         make();
-        raf = requestAnimationFrame(frame);
+        // drawn once it's built (a step at a time, so the page stays free meanwhile)
+        const w = word;
+        (w ? w.ready : Promise.resolve()).then(() => {
+          if (alive && w === word) raf = requestAnimationFrame(frame);
+        });
       }, 0);
     });
     const io = new IntersectionObserver(([e]) => (visible = e.isIntersecting));

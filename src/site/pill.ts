@@ -21,7 +21,11 @@ const say = (bold: string, rest: string) => console.log(`%c${bold} %c${rest}`, '
 function enterPillMode() {
   const root = document.documentElement;
   if (root.dataset.forest === 'failed') return say('Hm.', "The wood couldn't grow in this browser.");
-  if (root.dataset.forest !== 'ready') return say('Not yet.', 'The wood is still growing. Try again in a moment.');
+  if (root.dataset.forest !== 'ready') {
+    // the wood only starts growing once you do something on the page: this counts
+    window.dispatchEvent(new Event('forest-wake'));
+    return say('Not yet.', 'The wood is still growing. Try again in a moment.');
+  }
   if (forest.get().playing) return say('Already there.', "You're in the wood.");
   forest.set({ playing: true, paused: false, full: false });
   say('Gulp.', window.matchMedia('(pointer: coarse)').matches ? 'Into the wood.' : 'Click "Keep exploring" to look round with the mouse.');

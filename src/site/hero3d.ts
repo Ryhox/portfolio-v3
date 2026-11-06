@@ -183,6 +183,8 @@ const INK_FRAG = /* glsl */ `
 export type HeroWord = {
   /** Sizes the word to the page's heading again (after a resize or once the fonts are in). */
   build: () => void;
+  /** Settles once the word is first built (a step at a time) and ready to draw. */
+  ready: Promise<void>;
   /** Draws the word at scroll progress p, with the evening's ink flooded in to `flood` (0..1). */
   render: (p: number, now: number, flood?: number) => void;
   /**
@@ -197,11 +199,18 @@ export type HeroWord = {
 /** The word's renderer; and whether the browser draws WebGL without a graphics card (in software, slowly). */
 function makeRenderer(canvas: HTMLCanvasElement) {
   const opts = { canvas, alpha: true, antialias: true, powerPreference: 'high-performance' as const };
+  let renderer: THREE.WebGLRenderer;
   try {
-    return { renderer: new THREE.WebGLRenderer({ ...opts, failIfMajorPerformanceCaveat: true }), soft: false };
+    renderer = new THREE.WebGLRenderer({ ...opts, failIfMajorPerformanceCaveat: true });
   } catch {
     return { renderer: new THREE.WebGLRenderer(opts), soft: true };
   }
+  // some browsers hand out a software context without saying so: its name gives it away (a browser that hides the
+  // name, like Brave, just counts as having a card)
+  const gl = renderer.getContext();
+  const info = gl.getExtension('WEBGL_debug_renderer_info');
+  const name = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '';
+  return { renderer, soft: /swiftshader|llvmpipe|softpipe|software|basic render/i.test(name) };
 }
 
 export function createHeroWord(canvas: HTMLCanvasElement, h1: HTMLElement): HeroWord {
@@ -265,7 +274,21 @@ export function createHeroWord(canvas: HTMLCanvasElement, h1: HTMLElement): Hero
   let H = 1;
   let fs = 100;
 
+  /** Builds the word in one go (after a resize, or once the fonts are in). */
   function build() {
+    gen++;
+    const it = building();
+    while (!it.next().done);
+  }
+  /** Which build is the current one: a newer one stops an older one that's going a step at a time. */
+  let gen = 0;
+
+  /**
+   * The word's build, as steps: painting the letters, dressing them, the textures, the cut (a few rows of cells at a
+   * time) and the pieces. Run straight through by `build`, or a step per task while the page first comes alive
+   * (`ready`), so no single moment of it holds the page up.
+   */
+  function* building(): Generator<void, void, void> {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     W = canvas.clientWidth || window.innerWidth;
     H = canvas.clientHeight || window.innerHeight;
@@ -308,13 +331,16 @@ export function createHeroWord(canvas: HTMLCanvasElement, h1: HTMLElement): Hero
     g.fillText(text, padX, base);
     const letters = [...text].map((_, i): [number, number] => [Math.floor(padX + g.measureText(text.slice(0, i)).width), Math.ceil(padX + g.measureText(text.slice(0, i + 1)).width)]);
     const ink = { w: c.width, h: c.height, a: g.getImageData(0, 0, c.width, c.height).data };
+    yield;
     // the letters alone, before they're dressed: what the depth behind the face is made of
     const bare = document.createElement('canvas');
     bare.width = c.width;
     bare.height = c.height;
     bare.getContext('2d')!.drawImage(c, 0, 0);
     const dressed = posies(g, ink, base, letters, u);
+    yield;
     const alpha = g.getImageData(0, 0, c.width, c.height).data;
+    yield;
 
     const tex = (from: HTMLCanvasElement) => {
       const t = new THREE.CanvasTexture(from);
@@ -350,6 +376,7 @@ export function createHeroWord(canvas: HTMLCanvasElement, h1: HTMLElement): Hero
       uniforms.uL1.value[i] = Math.min(c.width, Math.max(b, d.x1)) / c.width;
     });
     uniforms.uTexel.value.set(1 / c.width, 1 / c.height);
+    yield;
 
     // the cut: a jittered grid, each cell split corner to corner one way or the other, glass-like
     const cell = fs * 0.105 * S;
@@ -381,7 +408,7 @@ export function createHeroWord(canvas: HTMLCanvasElement, h1: HTMLElement): Hero
       return false;
     };
     const tris: [number, number][][] = [];
-    for (let j = 0; j < ny; j++)
+    for (let j = 0; j < ny; j++) {
       for (let i = 0; i < nx; i++) {
         const a = pt(i, j);
         const b = pt(i + 1, j);
@@ -391,6 +418,8 @@ export function createHeroWord(canvas: HTMLCanvasElement, h1: HTMLElement): Hero
         // only the pieces with something on them
         for (const t of pair) if (inked(t)) tris.push(t);
       }
+      if (j % 4 === 3) yield;
+    }
 
     // whose each piece is: the letter its dressing came with, or the letter it sits over
     const owner = (x: number, y: number) => {
@@ -458,6 +487,7 @@ export function createHeroWord(canvas: HTMLCanvasElement, h1: HTMLElement): Hero
         let_[o] = li;
       }
     });
+    yield;
     const geo = new THREE.InstancedBufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
@@ -495,7 +525,8 @@ export function createHeroWord(canvas: HTMLCanvasElement, h1: HTMLElement): Hero
     // written out once, fast, the first time it's seen (not if the page opens already scrolled past it)
     if (!started) {
       started = true;
-      drawnFrom = p > 0.05 ? -1e9 : now;
+      // (without a graphics card it comes already written: drawn in software, each frame of the pen is a long pause)
+      drawnFrom = p > 0.05 || soft ? -1e9 : now;
     }
     const draw = (now - drawnFrom) / 1000 / 0.95;
     uniforms.uDraw.value = Math.min(1, draw);
@@ -516,10 +547,26 @@ export function createHeroWord(canvas: HTMLCanvasElement, h1: HTMLElement): Hero
     renderer.autoClear = true;
   }
 
-  build();
-  // the ink is first drawn only when the scroll gets there, and its shader is a big one: compiled now, alongside,
-  // so that frame never waits for it (on Windows that wait was over a second)
-  renderer.compileAsync(inkScene, inkCam).catch(() => {});
+  // built a step per task, then its textures sent to the GPU and its shaders compiled, each on its own: the word's
+  // first frame then only draws (nothing of it holds the page up while it comes alive)
+  const nextTask = () => new Promise<void>((r) => setTimeout(r, 0));
+  const ready = (async () => {
+    const mine = ++gen;
+    for (const it = building(); ; ) {
+      await nextTask();
+      if (mine !== gen) return;
+      if (it.next().done) break;
+    }
+    for (const t of [texture, mask]) {
+      await nextTask();
+      if (t) renderer.initTexture(t);
+    }
+    await nextTask();
+    // the ink is first drawn only when the scroll gets there, and its shader is a big one: compiled now, alongside,
+    // so that frame never waits for it (on Windows that wait was over a second)
+    renderer.compileAsync(inkScene, inkCam).catch(() => {});
+    await renderer.compileAsync(scene, camera).catch(() => {});
+  })();
   // ...and drawn with once, into a scrap the size of a stamp, once the page is quiet: on Windows a shader is only
   // finished at its first draw, and that first draw would otherwise be the first frame of the evening
   const warm = () => {
@@ -532,9 +579,11 @@ export function createHeroWord(canvas: HTMLCanvasElement, h1: HTMLElement): Hero
     scrap.dispose();
     inkU.uK.value = 0;
   };
-  const warmId = 'requestIdleCallback' in window ? window.requestIdleCallback(warm, { timeout: 4000 }) : (setTimeout(warm, 2000) as unknown as number);
+  // (not needed when it's all drawn in software anyway)
+  const warmId = soft ? 0 : 'requestIdleCallback' in window ? window.requestIdleCallback(warm, { timeout: 4000 }) : (setTimeout(warm, 2000) as unknown as number);
   return {
     build,
+    ready,
     render,
     due(p, now, flood) {
       if (!soft || !started) return true;

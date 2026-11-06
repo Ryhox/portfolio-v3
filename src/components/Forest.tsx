@@ -77,20 +77,14 @@ export default function Forest() {
       return true;
     };
     let engine: ReturnType<typeof CreateForest> | null = null;
-    // the engine is its own script, fetched straight away (loading it starts the painters in their workers) but
-    // apart from the page's first one: the name on the landing doesn't wait for the whole wood's code
+    // the engine is its own script (loading it starts the painters in their workers), apart from the page's first
+    // one: the name on the landing doesn't wait for the whole wood's code
     let createForest: typeof CreateForest | null = null;
-    let wanted = false;
+    let loading = false;
     let gone = false;
-    import('@/scene/engine').then((m) => {
-      if (gone) return;
-      createForest = m.createForest;
-      if (wanted) start();
-    });
     // the wood is painted in the visit's season; picking another on the page paints it again
     const start = () => {
-      wanted = true;
-      if (!createForest) return;
+      if (!createForest) return go();
       engine?.dispose();
       engine = null;
       delete document.documentElement.dataset.forest;
@@ -112,23 +106,23 @@ export default function Forest() {
         document.documentElement.dataset.forest = 'failed';
       }
     };
-    // the wood is a few screens down, and its painting is already under way in the workers: it's set up when the
-    // page is idle, not in the middle of the page coming alive (at once if the page opens already in or near it)
-    let waiting = 0;
-    let idleId = 0;
+    // the wood is several screens down (past the name, the About and the crew): its code is fetched, its painters set
+    // to work and the engine set up as soon as you do anything at all (scroll, move the mouse, touch, type); at once
+    // if the page opens already in or near it. The page's first moments are the name's.
+    // (`forest-wake`: `pill.enter()` typed in the console, which reaches the page as no event of its own)
+    const WAKE = ['scroll', 'wheel', 'pointermove', 'pointerdown', 'keydown', 'touchstart', 'forest-wake'] as const;
     const go = () => {
-      clearTimeout(waiting);
-      if (idleId) window.cancelIdleCallback?.(idleId);
-      waiting = idleId = 0;
-      if (!engine) start();
+      WAKE.forEach((e) => window.removeEventListener(e, go));
+      if (loading) return;
+      loading = true;
+      import('@/scene/engine').then((m) => {
+        if (gone) return;
+        createForest = m.createForest;
+        start();
+      });
     };
-    if (window.scrollY > window.innerHeight) waiting = window.setTimeout(go, 0);
-    else {
-      if ('requestIdleCallback' in window) idleId = window.requestIdleCallback(go, { timeout: 1500 });
-      waiting = window.setTimeout(go, 1600);
-      // scrolling towards it can't wait for the page to go quiet
-      window.addEventListener('scroll', go, { once: true, passive: true });
-    }
+    if (window.scrollY > window.innerHeight * 0.5) go();
+    else WAKE.forEach((e) => window.addEventListener(e, go, { passive: true }));
     const unseason = seasonStore.subscribe(start);
     if (process.env.NODE_ENV !== 'production') Object.assign(window, { __lenis: lenis });
     // pill mode is a secret: only `pill.enter()` in the console gets you in (DevTools lists the secrets)
@@ -164,9 +158,7 @@ export default function Forest() {
     window.addEventListener('load', remeasure);
     return () => {
       gone = true;
-      clearTimeout(waiting);
-      if (idleId) window.cancelIdleCallback?.(idleId);
-      window.removeEventListener('scroll', go);
+      WAKE.forEach((e) => window.removeEventListener(e, go));
       window.removeEventListener('load', remeasure);
       for (const t of ['touchstart', 'touchend', 'touchcancel'] as const) window.removeEventListener(t, onFinger);
       release?.();

@@ -1,16 +1,11 @@
 import Link from 'next/link';
 import { Suspense } from 'react';
 import Forest from '@/components/Forest';
+import Later from '@/components/Later';
 import Loader from '@/components/Loader';
-import PlayUI from '@/components/PlayUI';
-import Socials from '@/components/Socials';
-import Work from '@/components/Work';
-import About from '@/components/site/About';
-import Dive from '@/components/site/Dive';
-import Crew from '@/components/site/Crew';
+import { About, Crew, Dive, PlayUI, SiteFx, Socials, Work } from '@/components/Parts';
 import Intro from '@/components/site/Intro';
 import Nav from '@/components/site/Nav';
-import SiteFx from '@/components/site/SiteFx';
 import { homeGraph, ld } from '@/content/schema';
 import { site } from '@/content/site';
 
@@ -19,8 +14,9 @@ import { site } from '@/content/site';
  * clearing that comes alive into the wood itself, where the computer is (work), and the walk on to the cat's
  * hollow (footer). The canvas behind follows the scroll.
  *
- * Each part is its own Suspense boundary: nothing in them waits for anything (the HTML is all there), but React then
- * brings them to life one by one, in separate tasks, instead of the whole page in one long one.
+ * Each part is its own Suspense boundary, so React brings them to life one by one in separate tasks. The parts further
+ * down (`Later`) are there as HTML from the first paint but come alive only as you near them: the first seconds are
+ * the name's alone.
  */
 export default function Home() {
   return (
@@ -38,19 +34,18 @@ export default function Home() {
           <Suspense>
             <Intro />
           </Suspense>
-          <Suspense>
+          <Later id="about" near="#hello" margin="50%" touched>
             <About />
-          </Suspense>
-          <Suspense>
+          </Later>
+          <Later id="crew" near="#crew">
             <Crew />
-          </Suspense>
+          </Later>
         </div>
-        <Suspense>
+        {/* one boundary for both: the clearing's stage overlaps the drawing's (`.dive + .work`) */}
+        <Later id="work" near="#work-intro" margin="200%">
           <Dive />
-        </Suspense>
-        <Suspense>
           <Work />
-        </Suspense>
+        </Later>
         <div className="walk walk-out" aria-hidden="true" />
       </main>
       <footer className="end" data-stage="end">
@@ -59,9 +54,9 @@ export default function Home() {
           <a className="end-mail" href={`mailto:${site.email}`}>
             {site.email}
           </a>
-          <Suspense>
+          <Later id="end" near="footer.end">
             <Socials className="socials end-socials" pixel />
-          </Suspense>
+          </Later>
           <p className="end-small">
             <span>© {new Date().getFullYear()} Ryhox</span>
             <Link href="/imprint">Imprint</Link>
@@ -69,12 +64,12 @@ export default function Home() {
           </p>
         </div>
       </footer>
-      <Suspense>
+      <Later id="play" play>
         <PlayUI />
-      </Suspense>
-      <Suspense>
+      </Later>
+      <Later id="fx" touched near="#hello" margin="50%">
         <SiteFx />
-      </Suspense>
+      </Later>
     </>
   );
 }

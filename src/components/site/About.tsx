@@ -31,12 +31,21 @@ export default function About() {
   const title = useRef<HTMLHeadingElement>(null);
   const lead = useRef<HTMLParagraphElement>(null);
 
+  // whether the About is on screen at all (its petals only drift while it is)
+  useEffect(() => {
+    const s = sec.current;
+    if (!s) return;
+    const io = new IntersectionObserver(([e]) => (s.dataset.seen = String(e.isIntersecting)));
+    io.observe(s);
+    return () => io.disconnect();
+  }, []);
+
   // the marker sweeps over the words once they've come into focus, and wipes off when you scroll back above them
   // (a gap between the two, so it doesn't flicker on the edge)
   useEffect(() => {
     const p = lead.current;
     if (!p) return;
-    let on: boolean | null = null;
+    let on: boolean | null = false;
     let raf = 0;
     const frame = () => {
       raf = requestAnimationFrame(frame);
@@ -110,7 +119,8 @@ export default function About() {
           ))}
         </h2>
         <div className="about-cols">
-          <p ref={lead} className="lead" data-reveal>
+          {/* the marker starts wiped off (it sweeps in once the words are in focus): none of it moves while it's out of sight */}
+          <p ref={lead} className="lead" data-reveal data-in="false">
             {LEAD}
           </p>
           <PokeCat data-reveal />

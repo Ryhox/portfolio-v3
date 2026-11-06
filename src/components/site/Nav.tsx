@@ -93,17 +93,24 @@ export default function Nav() {
           if (muted) setTimeout(() => sfx.play('chime'), 60);
         }}
       >
-        <svg viewBox="0 0 34 28" aria-hidden="true">
-          <path d="M4 11.5c-.4 1.6-.3 3.6.1 5.2 2.2.4 4 .3 5.8.1l7.4 6.4c.9-6 .8-13.4-.2-19.6l-7.2 6.6c-1.9-.2-3.9-.1-5.9 1.3z" />
-          {muted ? (
-            <path d="M22 9.5l8 9M30.2 9.2l-8.4 9.6" />
-          ) : (
+        {/* each wave is its own little drawing over the speaker, so its wobble moves a box (no relayout every frame,
+            for the whole visit) instead of a path inside the drawing */}
+        <span className="nav-speaker" aria-hidden="true">
+          <svg viewBox="0 0 34 28">
+            <path d="M4 11.5c-.4 1.6-.3 3.6.1 5.2 2.2.4 4 .3 5.8.1l7.4 6.4c.9-6 .8-13.4-.2-19.6l-7.2 6.6c-1.9-.2-3.9-.1-5.9 1.3z" />
+            {muted ? <path d="M22 9.5l8 9M30.2 9.2l-8.4 9.6" /> : null}
+          </svg>
+          {muted ? null : (
             <>
-              <path className="wave" d="M21.5 10.2c1.6 1.9 1.7 5.3.1 7.4" />
-              <path className="wave far" d="M25 6.8c3.4 3.6 3.6 10.4.2 14.2" />
+              <svg className="wave" viewBox="0 0 34 28">
+                <path d="M21.5 10.2c1.6 1.9 1.7 5.3.1 7.4" />
+              </svg>
+              <svg className="wave far" viewBox="0 0 34 28">
+                <path d="M25 6.8c3.4 3.6 3.6 10.4.2 14.2" />
+              </svg>
             </>
           )}
-        </svg>
+        </span>
       </button>
     </nav>
   );

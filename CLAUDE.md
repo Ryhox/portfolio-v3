@@ -49,6 +49,13 @@ old computer and the project discs, the cat's hollow (footer). Next.js 16, vanil
   back buffer; the puddle/water reflection renders only with water in view (far puddles every 4th frame); nothing of
   the wood renders while you're fully inside the screen; without a GPU (`failIfMajorPerformanceCaveat`) the hero word
   holds still and redraws only on change. Never warm-draw at pill entry (it broke pill mode's picture).
+- Loading (PageSpeed): sections below the landing are `Later` boundaries (`components/Later.tsx`) with lazy code
+  (`components/Parts.tsx`): server HTML from the first paint, hydrated in place only when near / on first interaction /
+  on taking the pill. The forest engine loads on the first interaction (or at once if the page opens scrolled down;
+  `pill.enter()` wakes it too). The hero word builds a step per task (`building()` generator) before its first frame.
+  No endless animation may run out of sight or relayout every frame (that's what PageSpeed's Speed Index punishes):
+  the loader cat and the About petals pause while unseen; the nav speaker's waves are separate little SVGs whose box
+  wobbles (not paths inside the drawing).
 - Pill mode (`src/scene/play.ts`, `world.ts`, `art/gear.ts`) is a secret: the only way in is typing `pill.enter()` in
   the browser console (`src/site/pill.ts`; no paw offer at the cat, no nav link). On load the console prints the secret
   commands (`pill.enter()`, `pill.reset()`), never the cheats `pill.points()` / `pill.cases()`. From the console

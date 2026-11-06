@@ -392,6 +392,17 @@ html[data-forest] .loader {
   animation: loader-tail 1.6s steps(1) infinite;
 }
 
+/* she only blinks and flicks her tail while she's shown: hidden, her animations would still restyle and relayout
+   her drawing every frame for the whole visit */
+.loader-eyes,
+.loader-tail {
+  animation-play-state: paused;
+}
+
+html[data-in-wood]:not([data-forest]) :is(.loader-eyes, .loader-tail) {
+  animation-play-state: running;
+}
+
 @keyframes loader-blink {
   0%,
   88%,
