@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { NoWebGL, webgl } from './webgl';
 
 /**
  * The page before the work, in WebGL, over the wood: its ink drawing (painted onto a canvas, see projectsPage.ts)
@@ -81,6 +82,8 @@ export type Sketch = {
 };
 
 export function createSketch(canvas: HTMLCanvasElement): Sketch {
+  // asked quietly first (three.js logs an error when it can't make a context)
+  if (webgl() === 'none') throw new NoWebGL();
   const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false, powerPreference: 'high-performance' });
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
   renderer.setClearColor(0x000000, 0);

@@ -7,6 +7,7 @@ import { forest } from '@/scene/store';
 import { installSecrets } from '@/site/pill';
 import { seasonStore } from '@/site/season';
 import { setScroller } from '@/site/scroll';
+import { NoWebGL } from '@/site/webgl';
 import { sfx } from '@/sound/sfx';
 
 /** The fixed canvas behind the page, and the smooth scroll that walks you through it. */
@@ -102,7 +103,7 @@ export default function Forest() {
         });
       } catch (e) {
         // no WebGL: the page still reads fine on the plain background, and the loading screen steps aside
-        console.warn(e);
+        if (!(e instanceof NoWebGL)) console.warn(e);
         document.documentElement.dataset.forest = 'failed';
       }
     };

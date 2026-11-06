@@ -6,6 +6,7 @@ import { artPx } from '@/site/paint/canvas';
 import { paintProjects, QUOTE } from '@/site/projectsPage';
 import { useSeason } from '@/site/season';
 import { createSketch, type Sketch } from '@/site/sketch';
+import { NoWebGL } from '@/site/webgl';
 import { sfx } from '@/sound/sfx';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -60,7 +61,7 @@ export default function Dive() {
       s.dataset.gl = 'on';
     } catch (e) {
       // no WebGL: the drawing is shown as it is, and simply dissolves through a soft mask
-      console.warn(e);
+      if (!(e instanceof NoWebGL)) console.warn(e);
     }
     // the trees, standing where they close the screen off; at a whole number of screen pixels to each art pixel
     const trees: Tree[] = [];

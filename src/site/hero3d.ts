@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { hash2 } from '@/scene/pix';
 import { posies } from './posies';
+import { NoWebGL, webgl } from './webgl';
 
 /**
  * The name in the landing, in three.js: "ryhox" painted sharp at full resolution, dressed with its posies, given a
@@ -199,12 +200,11 @@ export type HeroWord = {
 /** The word's renderer; and whether the browser draws WebGL without a graphics card (in software, slowly). */
 function makeRenderer(canvas: HTMLCanvasElement) {
   const opts = { canvas, alpha: true, antialias: true, powerPreference: 'high-performance' as const };
-  let renderer: THREE.WebGLRenderer;
-  try {
-    renderer = new THREE.WebGLRenderer({ ...opts, failIfMajorPerformanceCaveat: true });
-  } catch {
-    return { renderer: new THREE.WebGLRenderer(opts), soft: true };
-  }
+  // asked quietly first: three.js logs an error when it can't make a context
+  const kind = webgl();
+  if (kind === 'none') throw new NoWebGL();
+  const renderer = new THREE.WebGLRenderer(opts);
+  if (kind === 'soft') return { renderer, soft: true };
   // some browsers hand out a software context without saying so: its name gives it away (a browser that hides the
   // name, like Brave, just counts as having a card)
   const gl = renderer.getContext();
@@ -564,8 +564,11 @@ export function createHeroWord(canvas: HTMLCanvasElement, h1: HTMLElement): Hero
     await nextTask();
     // the ink is first drawn only when the scroll gets there, and its shader is a big one: compiled now, alongside,
     // so that frame never waits for it (on Windows that wait was over a second)
-    renderer.compileAsync(inkScene, inkCam).catch(() => {});
-    await renderer.compileAsync(scene, camera).catch(() => {});
+    // (compiled alongside only where the browser can: without that, three.js warns and it blocks all the same)
+    if (renderer.extensions.has('KHR_parallel_shader_compile')) {
+      renderer.compileAsync(inkScene, inkCam).catch(() => {});
+      await renderer.compileAsync(scene, camera).catch(() => {});
+    } else renderer.compile(scene, camera);
   })();
   // ...and drawn with once, into a scrap the size of a stamp, once the page is quiet: on Windows a shader is only
   // finished at its first draw, and that first draw would otherwise be the first frame of the evening

@@ -54,8 +54,11 @@ old computer and the project discs, the cat's hollow (footer). Next.js 16, vanil
   on taking the pill. The forest engine loads on the first interaction (or at once if the page opens scrolled down;
   `pill.enter()` wakes it too). The hero word builds a step per task (`building()` generator) before its first frame.
   No endless animation may run out of sight or relayout every frame (that's what PageSpeed's Speed Index punishes):
-  the loader cat and the About petals pause while unseen; the nav speaker's waves are separate little SVGs whose box
-  wobbles (not paths inside the drawing).
+  the loader cat, the About's sleeping cat and its petals pause while unseen; the nav speaker's waves are separate
+  little SVGs whose box wobbles (not paths inside the drawing).
+- Every WebGL renderer asks `webgl()` (`site/webgl.ts`) first and throws `NoWebGL` quietly: three.js logs a console
+  error when it can't make a context (PageSpeed's Best Practices counts it). Browser source maps are published
+  (`productionBrowserSourceMaps`).
 - Pill mode (`src/scene/play.ts`, `world.ts`, `art/gear.ts`) is a secret: the only way in is typing `pill.enter()` in
   the browser console (`src/site/pill.ts`; no paw offer at the cat, no nav link). On load the console prints the secret
   commands (`pill.enter()`, `pill.reset()`), never the cheats `pill.points()` / `pill.cases()`. From the console

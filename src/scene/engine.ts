@@ -30,6 +30,7 @@ import { BOUNDS, critterSpots, EYE, extraTrees, GLADE, inBounds, LAKE, POND, RIV
 import { PAL, setPalette } from './palette';
 import { hash2, hex, mix, mulberry, noise1, Pix, ramp, rgbOf, shade } from './pix';
 import { forest, forestNow } from './store';
+import { NoWebGL, webgl } from '@/site/webgl';
 
 type Opts = {
   canvas: HTMLCanvasElement;
@@ -108,6 +109,8 @@ export function createForest(o: Opts) {
   THREE.ColorManagement.enabled = false;
   const season = o.season;
   setPalette(season);
+  // asked quietly first (three.js logs an error when it can't make a context)
+  if (webgl() === 'none') throw new NoWebGL();
   const painterInbox = startPainters(season);
   const renderer = new THREE.WebGLRenderer({ canvas: o.canvas, antialias: false, alpha: false, depth: false, stencil: false, powerPreference: 'high-performance' });
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;

@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react';
 import { site } from '@/content/site';
 import { burstAt, createHeroWord, type HeroWord } from '@/site/hero3d';
 import { progress } from '@/site/scroll';
+import { NoWebGL } from '@/site/webgl';
 import { sfx } from '@/sound/sfx';
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
@@ -41,8 +42,8 @@ export default function Intro() {
         word?.dispose();
         word = createHeroWord(c, h1);
       } catch (e) {
-        // no WebGL: the page's own heading shows instead
-        console.warn(e);
+        // no WebGL: the page's own heading shows instead (said in the console only if it was anything else)
+        if (!(e instanceof NoWebGL)) console.warn(e);
         word = null;
         h1.dataset.three = 'off';
       }
