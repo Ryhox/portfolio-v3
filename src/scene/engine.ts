@@ -127,6 +127,9 @@ export function createForest(o: Opts) {
   const sunFar = new THREE.OrthographicCamera(-FAR_HALF, FAR_HALF, FAR_HALF, -FAR_HALF, 30, 170);
   sunFar.layers.enableAll();
   const farShadow = new THREE.WebGLRenderTarget(2048, 2048, { depthTexture: new THREE.DepthTexture(2048, 2048) });
+  // the coarse map is redrawn a quarter per frame into the one not being read, then the two swap: never one frame
+  // that draws the whole wood again (that was a hitch every time you'd gone a good way)
+  const farBack = new THREE.WebGLRenderTarget(2048, 2048, { depthTexture: new THREE.DepthTexture(2048, 2048) });
   light.shadowFar.value = farShadow.depthTexture;
   light.sunDir.value.set(...SUN);
 
@@ -2929,6 +2932,14 @@ export function createForest(o: Opts) {
   const farFocus = new THREE.Vector3();
   const lastFar = new THREE.Vector3(Infinity, 0, 0);
   let shadowFrame = 0;
+  /** How many texels the view may move before the sharp map is redrawn. */
+  const SHADOW_STEP = 6;
+  const FAR_SIZE = 2048;
+  /** The coarse map being read, the one being drawn, which quarter is next (-1: none), and whether one is whole yet. */
+  let farRead = farShadow;
+  let farDraw = farBack;
+  let farTile = -1;
+  let farValid = false;
   function shadowPass() {
     lf.set(...SUN);
     lr.crossVectors(lf, new THREE.Vector3(0, 1, 0)).normalize();
@@ -2941,15 +2952,18 @@ export function createForest(o: Opts) {
     const fy = focus.dot(lu);
     focus.addScaledVector(lr, Math.round(fx / texel) * texel - fx).addScaledVector(lu, Math.round(fy / texel) * texel - fy);
     shadowFrame++;
-    const nearDue = !(focus.equals(lastFocus) && shadowFrame % 8 !== 0);
+    // the map is snapped to whole texels, so its shadows stay put wherever it's centred: it's redrawn once the view
+    // has moved a few texels on (it reaches 22 m round, so that's nothing at its edges), and every 8th frame for
+    // what moves in it. Redrawing it at every texel's step cost a whole extra wood per frame while you walked.
+    const nearDue = lastFocus.x === Infinity || focus.distanceTo(lastFocus) >= texel * SHADOW_STEP || shadowFrame % 8 === 0;
     // pill mode's coarse map over the whole wood: redrawn once you've gone a good way, and now and then
     light.farOn.value = playing ? 1 : 0;
     let farDue = false;
     if (playing) {
       farFocus.set(Math.round(camera.position.x / 12) * 12, 1.5, Math.round(camera.position.z / 12) * 12);
-      farDue = !farFocus.equals(lastFar) || shadowFrame % 240 === 0;
-    }
-    if (!nearDue && !farDue) return;
+      farDue = farTile < 0 && (!farFocus.equals(lastFar) || shadowFrame % 240 === 0);
+    } else farValid = false;
+    if (!nearDue && !farDue && farTile < 0) return;
     if (nearDue) {
       lastFocus.copy(focus);
       sunCam.up.copy(lu);
@@ -2986,17 +3000,42 @@ export function createForest(o: Opts) {
     }
     if (farDue) {
       lastFar.copy(farFocus);
-      // the animals move about: leave them out of the coarse map (it's only for what's far off)
-      const animals = fauna?.group.visible ?? false;
-      if (fauna) fauna.group.visible = false;
       sunFar.up.copy(lu);
       sunFar.position.copy(farFocus).addScaledVector(lf, -100);
       sunFar.lookAt(farFocus);
       sunFar.updateMatrixWorld();
-      renderer.setRenderTarget(farShadow);
-      renderer.render(scene, sunFar);
+      farTile = 0;
+    }
+    if (farTile >= 0) {
+      // the animals move about: leave them out of the coarse map (it's only for what's far off)
+      const animals = fauna?.group.visible ?? false;
+      if (fauna) fauna.group.visible = false;
+      // the first map of a visit is drawn whole (there's nothing yet to show meanwhile); after that a quarter a
+      // frame, each quarter its own little view, so only what's in it is drawn
+      const all = !farValid;
+      const H2 = FAR_SIZE / 2;
+      for (let q = all ? 0 : farTile; q < (all ? 4 : farTile + 1); q++) {
+        const qx = q % 2;
+        const qy = q >> 1;
+        sunFar.setViewOffset(FAR_SIZE, FAR_SIZE, qx * H2, qy * H2, H2, H2);
+        farDraw.viewport.set(qx * H2, (1 - qy) * H2, H2, H2);
+        farDraw.scissor.copy(farDraw.viewport);
+        farDraw.scissorTest = true;
+        renderer.setRenderTarget(farDraw);
+        renderer.render(scene, sunFar);
+      }
+      sunFar.clearViewOffset();
+      farDraw.viewport.set(0, 0, FAR_SIZE, FAR_SIZE);
+      farDraw.scissorTest = false;
       if (fauna) fauna.group.visible = animals;
-      light.shadowFarMatrix.value.copy(bias).multiply(sunFar.projectionMatrix).multiply(sunFar.matrixWorldInverse);
+      farTile = all ? 4 : farTile + 1;
+      if (farTile >= 4) {
+        light.shadowFarMatrix.value.copy(bias).multiply(sunFar.projectionMatrix).multiply(sunFar.matrixWorldInverse);
+        light.shadowFar.value = farDraw.depthTexture;
+        [farDraw, farRead] = [farRead, farDraw];
+        farTile = -1;
+        farValid = true;
+      }
     }
     fauna?.useDepth(false);
     effects.forEach((m, i) => (m.visible = effectsOn[i]));
@@ -3012,6 +3051,35 @@ export function createForest(o: Opts) {
     for (const g of gibs) g.sh.mesh.visible = g.sh.spray.points.visible = true;
   }
 
+  /** Everything that shows the reflection, as boxes on the ground: the lake, the pond, each reach of the river, the puddles. */
+  const wetBoxes = [
+    ...[LAKE, POND].map((w) => new THREE.Box3(new THREE.Vector3(w.x - w.rx, -0.3, w.z - w.rz), new THREE.Vector3(w.x + w.rx, 0.3, w.z + w.rz))),
+    ...RIVER.slice(1).map(([x1, z1], i) => {
+      const [x0, z0] = RIVER[i];
+      const r = RIVER_W + 0.6;
+      return new THREE.Box3(new THREE.Vector3(Math.min(x0, x1) - r, -0.3, Math.min(z0, z1) - r), new THREE.Vector3(Math.max(x0, x1) + r, 0.3, Math.max(z0, z1) + r));
+    }),
+  ];
+  const puddleBoxes = PUDDLES.map(([x, z, rx, rz]) => new THREE.Box3(new THREE.Vector3(x - rx, -0.3, z - rz), new THREE.Vector3(x + rx, 0.3, z + rz)));
+  /** Past this a puddle is a few pixels: its reflection is redrawn only every 4th frame (nobody can tell). */
+  const PUDDLE_REACH = 24;
+  const viewFrustum = new THREE.Frustum();
+  const viewProj = new THREE.Matrix4();
+  let mirrorFrame = 0;
+  /** What water is in view: 0 none, 1 only far-off puddles, 2 the lake, the pond, the river or a near puddle. */
+  function wetInView() {
+    viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    viewFrustum.setFromProjectionMatrix(viewProj);
+    if (wetBoxes.some((b) => viewFrustum.intersectsBox(b))) return 2;
+    let far = false;
+    for (const b of puddleBoxes) {
+      if (!viewFrustum.intersectsBox(b)) continue;
+      if (b.distanceToPoint(camera.position) < PUDDLE_REACH) return 2;
+      far = true;
+    }
+    return far ? 1 : 0;
+  }
+
   /** Renders the wood from under the floor (and fogs it), for the puddles to show. Skipped in the meadow. */
   function mirrorPass(now: number) {
     if (!floor) return;
@@ -3021,9 +3089,12 @@ export function createForest(o: Opts) {
     fl.time.value = now;
     const cz = camera.position.z;
     const cxp = camera.position.x;
-    const ahead = playing || PUDDLES.some(([px, pz]) => pz < cz - 0.3 && pz > cz - 24 && Math.abs(px - cxp) < 7);
-    fl.wet.value = ahead ? wet : 0;
-    if (wet <= 0 || !ahead) return;
+    // in pill mode: only while some water (the lake, the pond, the river, a puddle) is in view at all; otherwise its
+    // reflection is a second wood drawn for nothing
+    const seen = playing ? wetInView() : PUDDLES.some(([px, pz]) => pz < cz - 0.3 && pz > cz - 24 && Math.abs(px - cxp) < 7) ? 2 : 0;
+    fl.wet.value = seen ? wet : 0;
+    if (wet <= 0 || !seen) return;
+    if (seen === 1 && mirrorFrame++ % 4 !== 0) return;
     mirrorCam.copy(camera);
     mirrorCam.position.y = -camera.position.y;
     mirrorCam.updateMatrixWorld();
@@ -3177,7 +3248,14 @@ export function createForest(o: Opts) {
       else delete document.documentElement.dataset.inWood;
       sfx.bed('wood', inWood && ready, 0.8, season);
     }
-    if (!drawing) return;
+    if (!drawing) {
+      // while the page covers the wood: its first draws, a few a frame (see warmStep)
+      if (ready && !playing && warmList.length + (warmPost ? 1 : 0) > 0) warmStep();
+      return;
+    }
+    // all the way inside the big screen, its page covers the whole window: the wood behind isn't drawn at all, so
+    // the GPU is the film's (the shadows, the mirror and the ray-marched fog cost far more than a frame of video)
+    if (!playing && lean.p >= 1 && forest.get().full) return;
 
     shadowPass();
     mirrorPass(now);
@@ -3221,9 +3299,78 @@ export function createForest(o: Opts) {
   }
 
   /** Compiles every shader and allocates every render target up front, so scrolling never waits on the GPU. */
+  /**
+   * First draws, done early. Compiling a shader isn't the end of it on Windows: the graphics driver (and ANGLE)
+   * finish each one only when it's first drawn with. That used to be the first frame of the wood itself, a freeze of
+   * up to seconds on a weak GPU, right as you scrolled in. So while the page still covers the wood, everything is
+   * drawn once into a scrap target the size of a stamp, a few things a frame (its shadow-map material too).
+   */
+  const scrap = new THREE.WebGLRenderTarget(4, 4, { depthTexture: new THREE.DepthTexture(4, 4) });
+  const warmCam = new THREE.PerspectiveCamera();
+  const WARM_LAYER = 31;
+  const warmed = new WeakSet<THREE.Material>();
+  let warmList: THREE.Object3D[] = [];
+  let warmPost = false;
+  function queueWarm() {
+    warmList = [];
+    scene.traverse((o) => {
+      if (!(o as THREE.Mesh).isMesh && !(o as THREE.Points).isPoints) return;
+      const mats = [(o as THREE.Mesh).material, o.userData?.depth].flat().filter(Boolean) as THREE.Material[];
+      if (mats.some((x) => !warmed.has(x))) warmList.push(o);
+    });
+    warmPost = true;
+  }
+  function warmStep() {
+    renderer.setRenderTarget(scrap);
+    if (warmPost) {
+      warmPost = false;
+      renderer.render(fogScene, postCam);
+      renderer.render(mirrorFogScene, postCam);
+      renderer.render(blitScene, postCam);
+      renderer.render(boardScene, boardCam);
+    }
+    const batch = warmList.splice(0, 6);
+    const undo: (() => void)[] = [];
+    for (const o of batch) {
+      // drawn whatever it is now: shown, unculled, its whole line of parents shown too
+      for (let p: THREE.Object3D | null = o; p; p = p.parent) {
+        if (!p.visible) {
+          const q = p;
+          q.visible = true;
+          undo.push(() => (q.visible = false));
+        }
+      }
+      const cull = o.frustumCulled;
+      o.frustumCulled = false;
+      o.layers.enable(WARM_LAYER);
+      undo.push(() => {
+        o.frustumCulled = cull;
+        o.layers.disable(WARM_LAYER);
+      });
+    }
+    warmCam.copy(camera);
+    warmCam.layers.set(WARM_LAYER);
+    renderer.render(scene, warmCam);
+    // and as a caster, in the sun's view
+    const lit = batch.map((o) => (o as THREE.Mesh).material);
+    batch.forEach((o) => o.userData?.depth && ((o as THREE.Mesh).material = o.userData.depth));
+    renderer.render(scene, warmCam);
+    batch.forEach((o, i) => {
+      (o as THREE.Mesh).material = lit[i];
+      for (const m of [lit[i], o.userData?.depth].flat()) if (m) warmed.add(m as THREE.Material);
+    });
+    undo.reverse().forEach((f) => f());
+    renderer.setRenderTarget(null);
+  }
+
   function warmUp() {
     updateLabels();
     renderer.compile(scene, camera);
+    // the sun's view draws the casters with their depth materials, which are only put on them for that pass: compiled
+    // here too, or the first frame that draws the wood waits for them
+    for (const m of layers) if (m.userData.caster) m.material = m.userData.depth;
+    renderer.compile(scene, sunCam);
+    for (const m of layers) m.material = m.userData.lit;
     renderer.compile(fogScene, postCam);
     renderer.compile(mirrorFogScene, postCam);
     renderer.compile(boardScene, boardCam);
@@ -3232,6 +3379,7 @@ export function createForest(o: Opts) {
       renderer.clear();
     }
     renderer.setRenderTarget(null);
+    queueWarm();
   }
 
   function markReady() {
@@ -3339,6 +3487,8 @@ export function createForest(o: Opts) {
       mirroredFog.dispose();
       shadow.dispose();
       farShadow.dispose();
+      farBack.dispose();
+      scrap.dispose();
       hudTarget.dispose();
       renderer.dispose();
     },

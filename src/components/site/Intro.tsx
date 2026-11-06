@@ -52,7 +52,7 @@ export default function Intro() {
       const p = progress(s, stick.current?.offsetHeight || window.innerHeight);
       // the evening floods out of the middle like ink, as the name goes
       const flood = easeInOut(clamp01((p - 0.42) / 0.55));
-      word?.render(p, now, flood);
+      if (word?.due(p, now, flood)) word.render(p, now, flood);
       // the burst, letter by letter, with a sound for each
       [2, 1, 3, 0, 4].forEach((li, k) => {
         if (p > burstAt(li) && popped < k) {
@@ -73,10 +73,14 @@ export default function Intro() {
     };
     // the fonts first, so the word is cut from the real letters
     let alive = true;
+    let soon = 0;
     (document.fonts?.ready ?? Promise.resolve()).then(() => {
-      if (!alive) return;
-      make();
-      raf = requestAnimationFrame(frame);
+      // a task of its own, not the tail of the page's hydration: the page answers in between
+      soon = window.setTimeout(() => {
+        if (!alive) return;
+        make();
+        raf = requestAnimationFrame(frame);
+      }, 0);
     });
     const io = new IntersectionObserver(([e]) => (visible = e.isIntersecting));
     io.observe(s);
@@ -88,6 +92,7 @@ export default function Intro() {
     ro.observe(c);
     return () => {
       alive = false;
+      clearTimeout(soon);
       cancelAnimationFrame(raf);
       clearTimeout(resizeT);
       io.disconnect();

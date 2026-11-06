@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import Chevron from '@/components/site/Chevron';
 import { FlourishPaths } from '@/components/site/Flourish';
 import { ProjectKeys, ProjectVideo } from '@/components/site/ProjectBits';
-import { projects } from '@/content/projects';
+import { fxOf, projects } from '@/content/projects';
 import { ld, projectGraph } from '@/content/schema';
 import { site } from '@/content/site';
 
@@ -73,7 +73,7 @@ export default async function ProjectPage({ params }: Props) {
 
       <div className="sp-mid">
         <div className="sp-media">
-          <ProjectVideo slug={p.slug} title={p.title} />
+          <ProjectVideo slug={p.slug} title={p.title} stack={p.stack} av1={p.av1} />
         </div>
         <div className="sp-text">
           <p className="sp-kicker">{p.kicker}</p>
@@ -94,7 +94,7 @@ export default async function ProjectPage({ params }: Props) {
           <Chevron />
         </Link>
         {p.links.map((l) => (
-          <a key={l.href} href={l.href} target="_blank" rel="noreferrer" className="pixel-btn" aria-label={`${p.title}: ${l.label} (${bare(l.href)})`} title={bare(l.href)}>
+          <a key={l.href} href={l.href} target="_blank" rel="noreferrer" className="pixel-btn" data-fx={fxOf(l.label)} aria-label={`${p.title}: ${l.label} (${bare(l.href)})`} title={bare(l.href)}>
             {l.label}
           </a>
         ))}

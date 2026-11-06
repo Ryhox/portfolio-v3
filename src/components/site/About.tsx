@@ -58,6 +58,7 @@ export default function About() {
     const h = title.current;
     if (!s || !h) return;
     const chars = [...h.querySelectorAll<HTMLElement>('.ch')];
+    const shown: string[] = [];
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     let raf = 0;
     let last = -1;
@@ -74,7 +75,11 @@ export default function About() {
       const span = 9;
       chars.forEach((c, i) => {
         const a = Math.max(0, Math.min(1, (k * (n + span) - i) / span));
-        c.style.setProperty('--c', (a < 0.5 ? 4 * a * a * a : 1 - (-2 * a + 2) ** 3 / 2).toFixed(3));
+        const v = (a < 0.5 ? 4 * a * a * a : 1 - (-2 * a + 2) ** 3 / 2).toFixed(3);
+        // only the letters on their way up change: the rest aren't touched (each change re-sets the line's text)
+        if (shown[i] === v) return;
+        shown[i] = v;
+        c.style.setProperty('--c', v);
       });
     };
     raf = requestAnimationFrame(frame);

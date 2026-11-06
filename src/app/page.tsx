@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { Suspense } from 'react';
 import Forest from '@/components/Forest';
 import Loader from '@/components/Loader';
 import PlayUI from '@/components/PlayUI';
@@ -17,22 +18,39 @@ import { site } from '@/content/site';
  * The page: the name on white, bursting into the evening (who); the crew (what with); then a drawing of the
  * clearing that comes alive into the wood itself, where the computer is (work), and the walk on to the cat's
  * hollow (footer). The canvas behind follows the scroll.
+ *
+ * Each part is its own Suspense boundary: nothing in them waits for anything (the HTML is all there), but React then
+ * brings them to life one by one, in separate tasks, instead of the whole page in one long one.
  */
 export default function Home() {
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: ld(homeGraph()) }} />
-      <Forest />
-      <Nav />
+      <Suspense>
+        <Forest />
+      </Suspense>
+      <Suspense>
+        <Nav />
+      </Suspense>
       <Loader />
       <main>
         <div className="site">
-          <Intro />
-          <About />
-          <Crew />
+          <Suspense>
+            <Intro />
+          </Suspense>
+          <Suspense>
+            <About />
+          </Suspense>
+          <Suspense>
+            <Crew />
+          </Suspense>
         </div>
-        <Dive />
-        <Work />
+        <Suspense>
+          <Dive />
+        </Suspense>
+        <Suspense>
+          <Work />
+        </Suspense>
         <div className="walk walk-out" aria-hidden="true" />
       </main>
       <footer className="end" data-stage="end">
@@ -41,7 +59,9 @@ export default function Home() {
           <a className="end-mail" href={`mailto:${site.email}`}>
             {site.email}
           </a>
-          <Socials className="socials end-socials" pixel />
+          <Suspense>
+            <Socials className="socials end-socials" pixel />
+          </Suspense>
           <p className="end-small">
             <span>© {new Date().getFullYear()} Ryhox</span>
             <Link href="/imprint">Imprint</Link>
@@ -49,8 +69,12 @@ export default function Home() {
           </p>
         </div>
       </footer>
-      <PlayUI />
-      <SiteFx />
+      <Suspense>
+        <PlayUI />
+      </Suspense>
+      <Suspense>
+        <SiteFx />
+      </Suspense>
     </>
   );
 }

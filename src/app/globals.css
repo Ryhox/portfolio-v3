@@ -670,6 +670,34 @@ html[data-full] .sp-flourish .rule-dots {
   filter: saturate(0.92) contrast(1.04);
 }
 
+/* pointing at a link, the film reacts (`FilmFx`): it dives toward you for Visit, turns to code for Source */
+.sp-fx {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
+  visibility: hidden;
+  image-rendering: pixelated;
+  filter: saturate(0.92) contrast(1.04);
+}
+
+.sp-fx[data-on] {
+  visibility: visible;
+}
+
+.sp-frame {
+  transition:
+    scale 0.7s var(--out-expo),
+    box-shadow 0.7s var(--out-expo);
+}
+
+.sp-frame[data-film='visit'] {
+  scale: 1.025;
+  box-shadow: 0 22px 44px rgb(60 40 20 / 0.3);
+}
+
 /* a flip changes the channel, softly: a faint grain shimmers over the whole screen as the next project eases in */
 .sp-static {
   position: absolute;

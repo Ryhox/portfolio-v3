@@ -2,7 +2,7 @@
 
 import Lenis from 'lenis';
 import { useEffect, useRef, useState } from 'react';
-import { createForest } from '@/scene/engine';
+import type { createForest as CreateForest } from '@/scene/engine';
 import { forest } from '@/scene/store';
 import { installSecrets } from '@/site/pill';
 import { seasonStore } from '@/site/season';
@@ -76,9 +76,21 @@ export default function Forest() {
       frame = requestAnimationFrame(check);
       return true;
     };
-    let engine: ReturnType<typeof createForest> | null = null;
+    let engine: ReturnType<typeof CreateForest> | null = null;
+    // the engine is its own script, fetched straight away (loading it starts the painters in their workers) but
+    // apart from the page's first one: the name on the landing doesn't wait for the whole wood's code
+    let createForest: typeof CreateForest | null = null;
+    let wanted = false;
+    let gone = false;
+    import('@/scene/engine').then((m) => {
+      if (gone) return;
+      createForest = m.createForest;
+      if (wanted) start();
+    });
     // the wood is painted in the visit's season; picking another on the page paints it again
     const start = () => {
+      wanted = true;
+      if (!createForest) return;
       engine?.dispose();
       engine = null;
       delete document.documentElement.dataset.forest;
@@ -100,7 +112,23 @@ export default function Forest() {
         document.documentElement.dataset.forest = 'failed';
       }
     };
-    start();
+    // the wood is a few screens down, and its painting is already under way in the workers: it's set up when the
+    // page is idle, not in the middle of the page coming alive (at once if the page opens already in or near it)
+    let waiting = 0;
+    let idleId = 0;
+    const go = () => {
+      clearTimeout(waiting);
+      if (idleId) window.cancelIdleCallback?.(idleId);
+      waiting = idleId = 0;
+      if (!engine) start();
+    };
+    if (window.scrollY > window.innerHeight) waiting = window.setTimeout(go, 0);
+    else {
+      if ('requestIdleCallback' in window) idleId = window.requestIdleCallback(go, { timeout: 1500 });
+      waiting = window.setTimeout(go, 1600);
+      // scrolling towards it can't wait for the page to go quiet
+      window.addEventListener('scroll', go, { once: true, passive: true });
+    }
     const unseason = seasonStore.subscribe(start);
     if (process.env.NODE_ENV !== 'production') Object.assign(window, { __lenis: lenis });
     // pill mode is a secret: only `pill.enter()` in the console gets you in (DevTools lists the secrets)
@@ -135,6 +163,10 @@ export default function Forest() {
     document.fonts?.ready.then(remeasure);
     window.addEventListener('load', remeasure);
     return () => {
+      gone = true;
+      clearTimeout(waiting);
+      if (idleId) window.cancelIdleCallback?.(idleId);
+      window.removeEventListener('scroll', go);
       window.removeEventListener('load', remeasure);
       for (const t of ['touchstart', 'touchend', 'touchcancel'] as const) window.removeEventListener(t, onFinger);
       release?.();

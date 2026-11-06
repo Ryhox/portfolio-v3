@@ -35,6 +35,20 @@ old computer and the project discs, the cat's hollow (footer). Next.js 16, vanil
   disc unseen). Leave leans back out, then the disc comes out. Inside, the scroll holds still and the top bar hides.
   A disc picked from a little off the computer glides the page there first (`toComputer` in `Work.tsx`), so the dive
   comes right away; a pick you scrolled away from never dives in later on its own; clicking the glass dives in.
+- Films (`public/work/<slug>.mp4`): 1280 wide, no audio, faststart. Pokyh also has an AV1 copy (`av1: true` in
+  `content/projects.ts`, `FilmSources` puts it first) and was de-duplicated + motion-interpolated to a true 60 fps (its
+  capture was ~20 fps stretched to 30, which juddered). The monitor's `<video>` gets its sources only once a disc is
+  picked (nothing downloads on page load).
+- Pointing at Visit/Source (`components/site/FilmFx.tsx`, one WebGL layer over the film, `data-fx` on the links):
+  Visit = the dive, a straight push-in through slightly bulging glass, blur/fringe only while moving; Source = the film
+  pauses and its frame ripples (from the button) into its own code, then holds still. User: calm, no flicker, not random.
+- Performance (keep it; measured on a GTX 1070 and an AMD iGPU): the engine is a dynamic `import()` started when idle;
+  each home section is its own `<Suspense>` (hydrates in pieces); `Dive` sets up within two screens; first draws are
+  warmed off-screen (`warmStep` in the engine, the hero's ink, FilmFx), because ANGLE finishes a shader only at its
+  first draw; the sharp shadow map redraws after 6 texels / every 8th frame, the far map a quarter per frame into a
+  back buffer; the puddle/water reflection renders only with water in view (far puddles every 4th frame); nothing of
+  the wood renders while you're fully inside the screen; without a GPU (`failIfMajorPerformanceCaveat`) the hero word
+  holds still and redraws only on change. Never warm-draw at pill entry (it broke pill mode's picture).
 - Pill mode (`src/scene/play.ts`, `world.ts`, `art/gear.ts`) is a secret: the only way in is typing `pill.enter()` in
   the browser console (`src/site/pill.ts`; no paw offer at the cat, no nav link). On load the console prints the secret
   commands (`pill.enter()`, `pill.reset()`), never the cheats `pill.points()` / `pill.cases()`. From the console
@@ -84,7 +98,11 @@ old computer and the project discs, the cat's hollow (footer). Next.js 16, vanil
 - The wood looks the same for everyone: everything seeded, tree sprites put in a fixed order before planting.
 - Trees reach the edges of wide screens (a second, sparser band further out); no empty mist at the sides.
 - The hollow (its tall swirl wall) is hidden until you leave the clearing, so it never stands over the wood.
-- "ryhox" is dressed with small posies on the letters themselves (`art/garland.ts`), not bushes beside the word.
+- "ryhox" is dressed with small posies on the letters themselves (`site/posies.ts`), not bushes beside the word. Only
+  the letters have the word's dark depth; the posies sit on its face in their own colours (they looked dark otherwise).
+- The 404's trees (`LostTrees.tsx`) get the wood's sunlight baked in (ambient + season's sun, shade under the crown),
+  or they look dark and flat on the paper.
+- 60 fps everywhere, on integrated GPUs too; PageSpeed as high as it goes without changing the look.
 - Social icons (footer buttons): each brand's real logo as a crisp vector in its own colour, like the tech stack's
   logos (GitHub, Modrinth, Discord from Simple Icons, sources in `assets/socials`; an ink envelope for email;
   `content/icons.ts`). No pixel-art icons there.

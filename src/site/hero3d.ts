@@ -82,6 +82,7 @@ const VERT = /* glsl */ `
 
 const FRAG = /* glsl */ `
   uniform sampler2D uMap;
+  uniform sampler2D uMask;
   uniform vec2 uTexel;
   uniform float uDraw;
   uniform float uL0[5];
@@ -92,7 +93,11 @@ const FRAG = /* glsl */ `
   varying float vLayer;
   varying float vLetter;
   void main() {
-    vec4 t = texture2D(uMap, vUv);
+    // the depth behind the face is the letters' alone: the posies are on the face, in their own colours (with the
+    // word's dark depth behind them too, a small flower is mostly a dark rim)
+    vec4 t = vLayer > 0.5 ? texture2D(uMask, vUv) : texture2D(uMap, vUv);
+    // painted premultiplied, so the filtering never darkens a petal's edge; its own colour back out of it
+    t.rgb /= max(t.a, 0.004);
     float a = t.a * vFade;
     if (uDraw < 1.0) {
       // written out as the page opens: one letter after another, the pen tracing its outline from left to
@@ -144,12 +149,24 @@ const INK_FRAG = /* glsl */ `
   void main() {
     vec2 p = (gl_FragCoord.xy - uC) / uRes.y;
     float r = length(p);
-    vec2 q = vec2(fbm(p * 2.4 + uT * 0.06), fbm(p * 2.4 - uT * 0.05 + 5.2));
-    float n = fbm(p * 3.0 + q * 1.7);
     float R = uK * uMax;
     float grow = min(1.0, uK * 4.0);
-    float field = r - (n - 0.5) * 0.46 * grow;
     float aa = 1.5 / uRes.y;
+    // the noise only moves the front by a quarter screen either way (fbm stays within 0..1), and the droplets reach
+    // at most 0.09 past it: well inside it's plain ink, well outside nothing, so only the front needs the noise
+    // (the same picture, for a fraction of the work once the ink has the screen)
+    float reachOut = 0.23 * grow;
+    if (r < R - reachOut - 0.05 - aa) {
+      gl_FragColor = vec4(uCol, 1.0);
+      return;
+    }
+    if (r > R + reachOut + 0.1 + 12.0 * aa) {
+      gl_FragColor = vec4(0.0);
+      return;
+    }
+    vec2 q = vec2(fbm(p * 2.4 + uT * 0.06), fbm(p * 2.4 - uT * 0.05 + 5.2));
+    float n = fbm(p * 3.0 + q * 1.7);
+    float field = r - (n - 0.5) * 0.46 * grow;
     float body = 1.0 - smoothstep(R - aa, R + aa, field);
     // droplets flicked out ahead of the front: hard-edged, fewer the further out
     float dn = noise(p * 15.0 + q * 3.0);
@@ -168,11 +185,27 @@ export type HeroWord = {
   build: () => void;
   /** Draws the word at scroll progress p, with the evening's ink flooded in to `flood` (0..1). */
   render: (p: number, now: number, flood?: number) => void;
+  /**
+   * Whether drawing at this p and flood would show anything new. Always, with a graphics card (the word floats);
+   * without one (WebGL drawn in software, every frame costs the page a long pause) it holds still once written,
+   * and is drawn again only when the scroll moves it.
+   */
+  due: (p: number, now: number, flood: number) => boolean;
   dispose: () => void;
 };
 
+/** The word's renderer; and whether the browser draws WebGL without a graphics card (in software, slowly). */
+function makeRenderer(canvas: HTMLCanvasElement) {
+  const opts = { canvas, alpha: true, antialias: true, powerPreference: 'high-performance' as const };
+  try {
+    return { renderer: new THREE.WebGLRenderer({ ...opts, failIfMajorPerformanceCaveat: true }), soft: false };
+  } catch {
+    return { renderer: new THREE.WebGLRenderer(opts), soft: true };
+  }
+}
+
 export function createHeroWord(canvas: HTMLCanvasElement, h1: HTMLElement): HeroWord {
-  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: 'high-performance' });
+  const { renderer, soft } = makeRenderer(canvas);
   renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
   renderer.setClearColor(0x000000, 0);
   const scene = new THREE.Scene();
@@ -181,6 +214,7 @@ export function createHeroWord(canvas: HTMLCanvasElement, h1: HTMLElement): Hero
   scene.add(group);
   const uniforms = {
     uMap: { value: null as THREE.Texture | null },
+    uMask: { value: null as THREE.Texture | null },
     uP: { value: 0 },
     uTime: { value: 0 },
     uShake: { value: 0 },
@@ -221,9 +255,12 @@ export function createHeroWord(canvas: HTMLCanvasElement, h1: HTMLElement): Hero
   inkScene.add(ink);
   let mesh: THREE.Mesh | null = null;
   let texture: THREE.CanvasTexture | null = null;
+  let mask: THREE.CanvasTexture | null = null;
   // when it was first drawn: the pen writes it out once, as the page opens
   let drawnFrom = 0;
   let started = false;
+  /** What was last drawn (scroll, ink, how far written), so a still word isn't drawn again. */
+  let shown = '';
   let W = 1;
   let H = 1;
   let fs = 100;
@@ -271,16 +308,29 @@ export function createHeroWord(canvas: HTMLCanvasElement, h1: HTMLElement): Hero
     g.fillText(text, padX, base);
     const letters = [...text].map((_, i): [number, number] => [Math.floor(padX + g.measureText(text.slice(0, i)).width), Math.ceil(padX + g.measureText(text.slice(0, i + 1)).width)]);
     const ink = { w: c.width, h: c.height, a: g.getImageData(0, 0, c.width, c.height).data };
+    // the letters alone, before they're dressed: what the depth behind the face is made of
+    const bare = document.createElement('canvas');
+    bare.width = c.width;
+    bare.height = c.height;
+    bare.getContext('2d')!.drawImage(c, 0, 0);
     const dressed = posies(g, ink, base, letters, u);
     const alpha = g.getImageData(0, 0, c.width, c.height).data;
 
+    const tex = (from: HTMLCanvasElement) => {
+      const t = new THREE.CanvasTexture(from);
+      t.colorSpace = THREE.NoColorSpace;
+      t.premultiplyAlpha = true;
+      t.anisotropy = 4;
+      t.generateMipmaps = true;
+      t.minFilter = THREE.LinearMipmapLinearFilter;
+      return t;
+    };
     texture?.dispose();
-    texture = new THREE.CanvasTexture(c);
-    texture.colorSpace = THREE.NoColorSpace;
-    texture.anisotropy = 4;
-    texture.generateMipmaps = true;
-    texture.minFilter = THREE.LinearMipmapLinearFilter;
+    mask?.dispose();
+    texture = tex(c);
+    mask = tex(bare);
     uniforms.uMap.value = texture;
+    uniforms.uMask.value = mask;
 
     // where it sits: centred where the heading's letters are (the heading box, a touch above the middle)
     const box = h1.getBoundingClientRect();
@@ -450,7 +500,9 @@ export function createHeroWord(canvas: HTMLCanvasElement, h1: HTMLElement): Hero
     const draw = (now - drawnFrom) / 1000 / 0.95;
     uniforms.uDraw.value = Math.min(1, draw);
     // floating: a slow sway that shows its depth, easing in once it's written, settling as it starts to shake
-    const calm = (1 - Math.min(1, p / 0.2)) * Math.min(1, Math.max(0, (draw - 0.85) / 0.8));
+    // (not without a graphics card: there it holds still, so it needn't be drawn again every frame)
+    const calm = soft ? 0 : (1 - Math.min(1, p / 0.2)) * Math.min(1, Math.max(0, (draw - 0.85) / 0.8));
+    shown = `${p.toFixed(4)}|${flood.toFixed(4)}|${Math.min(1, draw) >= 1 ? 1 : draw}`;
     group.rotation.y = Math.sin(t * 0.55) * 0.16 * calm;
     group.rotation.x = Math.sin(t * 0.4 + 1) * 0.06 * calm;
     group.position.y = Math.sin(t * 0.8) * fs * 0.025 * calm;
@@ -465,15 +517,40 @@ export function createHeroWord(canvas: HTMLCanvasElement, h1: HTMLElement): Hero
   }
 
   build();
+  // the ink is first drawn only when the scroll gets there, and its shader is a big one: compiled now, alongside,
+  // so that frame never waits for it (on Windows that wait was over a second)
+  renderer.compileAsync(inkScene, inkCam).catch(() => {});
+  // ...and drawn with once, into a scrap the size of a stamp, once the page is quiet: on Windows a shader is only
+  // finished at its first draw, and that first draw would otherwise be the first frame of the evening
+  const warm = () => {
+    const scrap = new THREE.WebGLRenderTarget(4, 4);
+    inkU.uK.value = 0.5;
+    ink.visible = true;
+    renderer.setRenderTarget(scrap);
+    renderer.render(inkScene, inkCam);
+    renderer.setRenderTarget(null);
+    scrap.dispose();
+    inkU.uK.value = 0;
+  };
+  const warmId = 'requestIdleCallback' in window ? window.requestIdleCallback(warm, { timeout: 4000 }) : (setTimeout(warm, 2000) as unknown as number);
   return {
     build,
     render,
+    due(p, now, flood) {
+      if (!soft || !started) return true;
+      // still being written, or moved (the tremble before the burst moves with the scroll too)
+      if ((now - drawnFrom) / 1000 / 0.95 < 1) return true;
+      return `${p.toFixed(4)}|${flood.toFixed(4)}|1` !== shown;
+    },
     dispose() {
+      if ('cancelIdleCallback' in window) window.cancelIdleCallback(warmId);
+      clearTimeout(warmId);
       mesh?.geometry.dispose();
       material.dispose();
       ink.geometry.dispose();
       inkMat.dispose();
       texture?.dispose();
+      mask?.dispose();
       renderer.dispose();
     },
   };

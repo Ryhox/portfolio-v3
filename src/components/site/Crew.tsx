@@ -79,7 +79,11 @@ type Mate = {
   hover: boolean;
   told: number;
 };
-type Shard = { pts: [number, number][]; uv: [number, number][]; img: HTMLImageElement | null; w: number; h: number; x: number; y: number; vx: number; vy: number; rot: number; spin: number; age: number; life: number; eye?: number };
+/**
+ * A flying piece. `sheet` holds the pieces of one burst logo, each cut out once in its own cell (`src`, in the sheet's
+ * pixels), drawn at `dst` round the piece's own middle: no clipping while it flies.
+ */
+type Shard = { sheet: HTMLCanvasElement | null; src: [number, number, number, number]; dst: [number, number, number, number]; x: number; y: number; vx: number; vy: number; rot: number; spin: number; age: number; life: number; eye?: number };
 
 const GRAV = 2600;
 /**
@@ -406,6 +410,7 @@ export default function Crew() {
         const edge = i === 0 || j === 0 || i === n || j === n;
         return [(i + (edge ? 0 : (hash2(i, j, 41) - 0.5) * 0.7)) / n, (j + (edge ? 0 : (hash2(i, j, 42) - 0.5) * 0.7)) / n];
       };
+      const tris: { tri: [number, number][]; u: number; v: number }[] = [];
       for (let j = 0; j < n; j++)
         for (let i = 0; i < n; i++) {
           const a = pt(i, j);
@@ -416,30 +421,56 @@ export default function Crew() {
             const u = (tri[0][0] + tri[1][0] + tri[2][0]) / 3;
             const v = (tri[0][1] + tri[1][1] + tri[2][1]) / 3;
             if (!b.solid(u, v) && !tri.some(([p, q]) => b.solid(p * 0.8 + u * 0.2, q * 0.8 + v * 0.2))) continue;
-            const ox = (u - 0.5) * w;
-            const oy = (v - 0.5) * h;
-            const dd = Math.hypot(ox, oy) || 1;
-            const sp = 380 + Math.random() * 620;
-            shards.push({
-              pts: tri.map(([p, q]) => [(p - u) * w, (q - v) * h]),
-              uv: tri,
-              img: b.img,
-              w,
-              h,
-              x: cx + ox,
-              y: cy + oy,
-              vx: (ox / dd) * sp + (Math.random() - 0.5) * 200 + m.vx * 0.3,
-              vy: (oy / dd) * sp * 0.6 - 520 - Math.random() * 520,
-              rot: m.rot,
-              spin: (Math.random() - 0.5) * 22,
-              age: 0,
-              life: 1.2 + Math.random() * 0.7,
-            });
+            tris.push({ tri, u, v });
           }
         }
+      // the logo is cut into its pieces once, each into its own cell of one small sheet (a pixel of room round it),
+      // so they fly as plain pictures: clipping the whole logo again for every piece every frame was the cost of a burst
+      const boxes = tris.map(({ tri }) => {
+        const xs = tri.map(([p]) => p * w);
+        const ys = tri.map(([, q]) => q * h);
+        return [Math.floor(Math.min(...xs)) - 1, Math.floor(Math.min(...ys)) - 1, Math.ceil(Math.max(...xs)) + 1, Math.ceil(Math.max(...ys)) + 1];
+      });
+      const cw = Math.max(1, ...boxes.map(([x0, , x1]) => x1 - x0));
+      const ch = Math.max(1, ...boxes.map(([, y0, , y1]) => y1 - y0));
+      const cols = Math.max(1, Math.ceil(Math.sqrt(boxes.length)));
+      const sheet = document.createElement('canvas');
+      sheet.width = Math.ceil(cols * cw * dpr);
+      sheet.height = Math.ceil(Math.ceil(boxes.length / cols) * ch * dpr);
+      const sg = sheet.getContext('2d')!;
+      tris.forEach(({ tri, u, v }, k) => {
+        const [x0, y0, x1, y1] = boxes[k];
+        const ox0 = (k % cols) * cw;
+        const oy0 = Math.floor(k / cols) * ch;
+        sg.save();
+        sg.setTransform(dpr, 0, 0, dpr, (ox0 - x0) * dpr, (oy0 - y0) * dpr);
+        sg.beginPath();
+        tri.forEach(([p, q], i) => (i ? sg.lineTo(p * w, q * h) : sg.moveTo(p * w, q * h)));
+        sg.closePath();
+        sg.clip();
+        sg.drawImage(b.img, 0, 0, w, h);
+        sg.restore();
+        const ox = (u - 0.5) * w;
+        const oy = (v - 0.5) * h;
+        const dd = Math.hypot(ox, oy) || 1;
+        const sp = 380 + Math.random() * 620;
+        shards.push({
+          sheet,
+          src: [ox0 * dpr, oy0 * dpr, (x1 - x0) * dpr, (y1 - y0) * dpr],
+          dst: [x0 - u * w, y0 - v * h, x1 - x0, y1 - y0],
+          x: cx + ox,
+          y: cy + oy,
+          vx: (ox / dd) * sp + (Math.random() - 0.5) * 200 + m.vx * 0.3,
+          vy: (oy / dd) * sp * 0.6 - 520 - Math.random() * 520,
+          rot: m.rot,
+          spin: (Math.random() - 0.5) * 22,
+          age: 0,
+          life: 1.2 + Math.random() * 0.7,
+        });
+      });
       // the eyes, popping out
       for (const [u, v] of m.spec.eyes)
-        shards.push({ pts: [], uv: [], img: null, w, h, x: cx + (u - 0.5) * w, y: cy + (v - 0.5) * h, vx: (u - 0.5) * 900 + (Math.random() - 0.5) * 200, vy: -900 - Math.random() * 400, rot: 0, spin: (Math.random() - 0.5) * 12, age: 0, life: 1.6, eye: h * m.spec.eye });
+        shards.push({ sheet: null, src: [0, 0, 0, 0], dst: [0, 0, 0, 0], x: cx + (u - 0.5) * w, y: cy + (v - 0.5) * h, vx: (u - 0.5) * 900 + (Math.random() - 0.5) * 200, vy: -900 - Math.random() * 400, rot: 0, spin: (Math.random() - 0.5) * 12, age: 0, life: 1.6, eye: h * m.spec.eye });
     };
 
     const frame = (now: number) => {
@@ -641,20 +672,14 @@ export default function Crew() {
         g.globalAlpha = a;
         g.translate(s.x, s.y);
         g.rotate(s.rot);
-        if (s.eye && !s.img) {
+        if (s.eye && !s.sheet) {
           // a pixel eye stays upright and on the grid as it flies
           g.restore();
           g.save();
           g.globalAlpha = a;
           drawLooseEye(g, B, s.x, s.y);
-        } else if (s.img) {
-          g.beginPath();
-          s.pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
-          g.closePath();
-          g.clip();
-          const [u0, v0] = s.uv[0];
-          const [x0, y0] = s.pts[0];
-          g.drawImage(s.img, x0 - u0 * s.w, y0 - v0 * s.h, s.w, s.h);
+        } else if (s.sheet) {
+          g.drawImage(s.sheet, s.src[0], s.src[1], s.src[2], s.src[3], s.dst[0], s.dst[1], s.dst[2], s.dst[3]);
         }
         g.restore();
       }

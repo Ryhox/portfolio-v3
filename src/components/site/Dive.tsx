@@ -28,11 +28,31 @@ export default function Dive() {
 
   useEffect(() => {
     const s = sec.current;
+    if (!s) return;
+    // it's all set up only once it's within a couple of screens: nothing of it is seen before, and the page's first
+    // moments are the name's
+    let stop: (() => void) | null = null;
+    const io = new IntersectionObserver(
+      ([e]) => {
+        if (!e.isIntersecting || stop) return;
+        io.disconnect();
+        stop = setup(s) ?? null;
+      },
+      { rootMargin: '200% 0px' },
+    );
+    io.observe(s);
+    return () => {
+      io.disconnect();
+      stop?.();
+    };
+  }, [season]);
+
+  function setup(s: HTMLElement) {
     const sc = scene.current;
     const c = cv.current;
     const art = flat.current;
     const ct = curtain.current;
-    if (!s || !sc || !c || !art || !ct) return;
+    if (!sc || !c || !art || !ct) return;
     let gl: Sketch | null = null;
     try {
       gl = createSketch(c);
@@ -167,7 +187,7 @@ export default function Dive() {
       gl?.dispose();
       delete s.dataset.gl;
     };
-  }, [season]);
+  }
 
   return (
     <section ref={sec} id="work-intro" className="dive" data-stage="dive" aria-labelledby="dive-title">

@@ -11,7 +11,12 @@ export type Project = {
   stack: string[];
   links: { label: string; href: string }[];
   disc: { body: string; stripe: string };
+  /** The film also comes as AV1 (`/work/<slug>.av1.mp4`), much smaller; browsers that can't play it take the H.264 one. */
+  av1?: true;
 };
+
+/** What the film does while a link is pointed at (`FilmFx`): turns to code for Source, dives in for the rest. */
+export const fxOf = (label: string) => (label === 'Source' ? 'source' : 'visit');
 
 export const projects: Project[] = [
   {
@@ -49,6 +54,7 @@ export const projects: Project[] = [
       { label: 'Source', href: 'https://github.com/bedchem/pokyh-frontend' },
     ],
     disc: { body: '#2d5752', stripe: '#e0a25a' },
+    av1: true,
   },
   {
     slug: 'flylab',

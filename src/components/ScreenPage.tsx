@@ -1,11 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { projects } from '@/content/projects';
+import { fxOf, projects } from '@/content/projects';
 import { forest } from '@/scene/store';
 import { sfx } from '@/sound/sfx';
 import Chevron from './site/Chevron';
+import FilmFx from './site/FilmFx';
 import { FlourishPaths } from './site/Flourish';
+import { FilmSources } from './site/ProjectBits';
 
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
 /** How long the forest takes to lean back out of the screen (`leanIn` in the engine), before the disc comes out. */
@@ -30,6 +32,10 @@ export default function ScreenPage() {
   const p = projects[st.selected ?? st.loaded ?? last.current];
   const inside = st.full && !st.playing;
   const lit = (st.loaded !== null && !st.playing) || inside;
+  // the film is fetched only once a disc is picked (until then the monitor shows static): nothing to download on
+  // the page's first visit. Its sources appearing is what makes the video start loading.
+  const fetching = useRef(false);
+  if (st.selected !== null || st.loaded !== null) fetching.current = true;
 
   // the film only runs while the screen shows it
   useEffect(() => {
@@ -101,7 +107,6 @@ export default function ScreenPage() {
           <div className="sp-frame" key={p.slug}>
             <video
               ref={video}
-              src={`/work/${p.slug}.mp4`}
               muted
               loop
               playsInline
@@ -111,7 +116,10 @@ export default function ScreenPage() {
                 const v = e.currentTarget;
                 if (v.videoWidth) v.parentElement?.style.setProperty('--ar', (v.videoWidth / v.videoHeight).toFixed(4));
               }}
-            />
+            >
+              {fetching.current && <FilmSources slug={p.slug} av1={p.av1} />}
+            </video>
+            <FilmFx video={video} slug={p.slug} title={p.title} stack={p.stack} />
           </div>
         </div>
         <div className="sp-text" key={p.slug}>
@@ -130,7 +138,7 @@ export default function ScreenPage() {
           <Chevron />
         </button>
         {p.links.map((l) => (
-          <a key={l.href} href={l.href} target="_blank" rel="noreferrer" className="pixel-btn" aria-label={`${p.title}: ${l.label}`}>
+          <a key={l.href} href={l.href} target="_blank" rel="noreferrer" className="pixel-btn" data-fx={fxOf(l.label)} aria-label={`${p.title}: ${l.label}`}>
             {l.label}
           </a>
         ))}

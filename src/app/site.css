@@ -324,6 +324,11 @@ html[data-fx='on'] [data-reveal] {
   animation: cat-breathe 3.6s ease-in-out infinite;
 }
 
+/* out of sight she holds her breath: each breath repaints her pen-drawn wobble */
+.about-cat[data-seen='false'] .cat-pillow * {
+  animation-play-state: paused;
+}
+
 .cat-pillow .cat-tail {
   transform-box: fill-box;
   transform-origin: 100% 0%;
