@@ -22,11 +22,18 @@ export type ForestState = {
   aiming: boolean;
 };
 
-let state: ForestState = { selected: null, hovered: null, loaded: null, full: false, playing: false, paused: false, prompt: null, panel: null, weapon: 'rifle', ammo: { rifle: 5, shotgun: 6 }, aiming: false };
+const initial: ForestState = { selected: null, hovered: null, loaded: null, full: false, playing: false, paused: false, prompt: null, panel: null, weapon: 'rifle', ammo: { rifle: 5, shotgun: 6 }, aiming: false };
+let state = initial;
 const listeners = new Set<() => void>();
 
 export const forest = {
   get: () => state,
+  /**
+   * What the server rendered with. A part of the page that comes alive later (`Later`: pill mode's UI wakes only once
+   * you've taken the pill) hydrates from this, not from where things stand by then, or React finds the server's HTML
+   * doesn't match and throws (#418); it then catches up with the real state at once.
+   */
+  server: () => initial,
   set(patch: Partial<ForestState>) {
     state = { ...state, ...patch };
     listeners.forEach((l) => l());

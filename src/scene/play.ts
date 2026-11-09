@@ -5,6 +5,7 @@
  */
 import * as THREE from 'three';
 import { CREAM, dynamicCross, flashSprite, hitSprite, keyHint, pixelText, tallyIcon } from './art/gear';
+import { hand } from '@/site/hand';
 import { BAYER, LIGHT, light, toTexture } from './gl';
 import { hex, Pix } from './pix';
 import { CROSS_COLORS, settings } from './settings';
@@ -31,7 +32,6 @@ export class Controls {
   zoom = false;
   use = false;
   locked = false;
-  readonly touch: boolean;
   stick = { id: -1, x0: 0, y0: 0, x: 0, y: 0 };
   private look = { id: -1, x: 0, y: 0, at: 0, moved: 0 };
   private off: (() => void)[] = [];
@@ -39,8 +39,11 @@ export class Controls {
   constructor(
     private canvas: HTMLCanvasElement,
     private onLock: (locked: boolean) => void,
-  ) {
-    this.touch = window.matchMedia('(pointer: coarse)').matches;
+  ) {}
+
+  /** Played with fingers, not the mouse (the hand actually used settles it, see `hand`). */
+  get touch() {
+    return hand.touch();
   }
 
   attach() {
@@ -117,37 +120,38 @@ export class Controls {
     };
     document.addEventListener('pointerlockchange', lockChange);
     this.off.push(() => document.removeEventListener('pointerlockchange', lockChange));
-    if (this.touch) {
-      // left thumb walks (a stick appears where it lands), right thumb looks, a quick tap shoots
-      on('pointerdown', (e) => {
-        if (e.pointerType !== 'touch' || e.target !== this.canvas) return;
-        if (e.clientX < innerWidth * 0.45 && this.stick.id < 0) this.stick = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY };
-        else if (this.look.id < 0) this.look = { id: e.pointerId, x: e.clientX, y: e.clientY, at: performance.now(), moved: 0 };
-      });
-      on('pointermove', (e) => {
-        if (e.pointerId === this.stick.id) {
-          this.stick.x = e.clientX;
-          this.stick.y = e.clientY;
-        } else if (e.pointerId === this.look.id) {
-          const mx = e.clientX - this.look.x;
-          const my = e.clientY - this.look.y;
-          this.dx += mx * 1.6;
-          this.dy += my * 1.6;
-          this.look.moved += Math.abs(mx) + Math.abs(my);
-          this.look.x = e.clientX;
-          this.look.y = e.clientY;
-        }
-      });
-      const up = (e: PointerEvent) => {
-        if (e.pointerId === this.stick.id) this.stick.id = -1;
-        if (e.pointerId === this.look.id) {
-          if (this.look.moved < 12 && performance.now() - this.look.at < 300) this.fire = true;
-          this.look.id = -1;
-        }
-      };
-      on('pointerup', up);
-      on('pointercancel', up);
-    }
+    // the mouse turning up where fingers were thought to be (or the other way round): the pause screen comes or goes
+    this.off.push(hand.subscribe(() => this.onLock(this.locked)));
+    // the touch screen: left thumb walks (a stick appears where it lands), right thumb looks, a quick tap shoots.
+    // Always listening (fingers only, a mouse goes by untouched), so a finger can take over mid-walk
+    on('pointerdown', (e) => {
+      if (e.pointerType !== 'touch' || e.target !== this.canvas) return;
+      if (e.clientX < innerWidth * 0.45 && this.stick.id < 0) this.stick = { id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY };
+      else if (this.look.id < 0) this.look = { id: e.pointerId, x: e.clientX, y: e.clientY, at: performance.now(), moved: 0 };
+    });
+    on('pointermove', (e) => {
+      if (e.pointerId === this.stick.id) {
+        this.stick.x = e.clientX;
+        this.stick.y = e.clientY;
+      } else if (e.pointerId === this.look.id) {
+        const mx = e.clientX - this.look.x;
+        const my = e.clientY - this.look.y;
+        this.dx += mx * 1.6;
+        this.dy += my * 1.6;
+        this.look.moved += Math.abs(mx) + Math.abs(my);
+        this.look.x = e.clientX;
+        this.look.y = e.clientY;
+      }
+    });
+    const up = (e: PointerEvent) => {
+      if (e.pointerId === this.stick.id) this.stick.id = -1;
+      if (e.pointerId === this.look.id) {
+        if (this.look.moved < 12 && performance.now() - this.look.at < 300) this.fire = true;
+        this.look.id = -1;
+      }
+    };
+    on('pointerup', up);
+    on('pointercancel', up);
   }
 
   detach() {

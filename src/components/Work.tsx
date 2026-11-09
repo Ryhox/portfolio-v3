@@ -8,6 +8,7 @@ import ScreenPage from './ScreenPage';
 
 const subscribe = forest.subscribe;
 const get = forest.get;
+const server = forest.server;
 
 /**
  * A disc picked from a little off the computer (the discs can be picked a little either side of it) brings you the
@@ -40,7 +41,7 @@ const diveIn = (e: React.MouseEvent) => {
  * disc has booted the monitor, the forest dives into the glass until that page fills the window.
  */
 export default function Work() {
-  const state = useSyncExternalStore(subscribe, get, get);
+  const state = useSyncExternalStore(subscribe, get, server);
   const glass = useRef<HTMLDivElement>(null);
 
   // the static the page tunes in through: a tile of it, painted once, as dim as the glass's own waiting static

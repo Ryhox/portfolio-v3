@@ -21,7 +21,7 @@ const LEAN_OUT_MS = 820;
  * clears to the next project.
  */
 export default function ScreenPage() {
-  const st = useSyncExternalStore(forest.subscribe, forest.get, forest.get);
+  const st = useSyncExternalStore(forest.subscribe, forest.get, forest.server);
   const page = useRef<HTMLDivElement>(null);
   const video = useRef<HTMLVideoElement>(null);
   const leaving = useRef(false);

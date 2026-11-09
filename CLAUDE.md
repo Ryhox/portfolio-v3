@@ -51,7 +51,8 @@ old computer and the project discs, the cat's hollow (footer). Next.js 16, vanil
   holds still and redraws only on change. Never warm-draw at pill entry (it broke pill mode's picture).
 - Loading (PageSpeed): sections below the landing are `Later` boundaries (`components/Later.tsx`) with lazy code
   (`components/Parts.tsx`): server HTML from the first paint, hydrated in place only when near / on first interaction /
-  on taking the pill. The forest engine loads on the first interaction (or at once if the page opens scrolled down;
+  on taking the pill. Store hooks hydrate from `forest.server` (the state the server rendered), since a `Later` part
+  wakes after the state has moved on (React #418 otherwise). The forest engine loads on the first interaction (or at once if the page opens scrolled down;
   `pill.enter()` wakes it too). The hero word builds a step per task (`building()` generator) before its first frame.
   No endless animation may run out of sight or relayout every frame (that's what PageSpeed's Speed Index punishes):
   the loader cat, the About's sleeping cat and its petals pause while unseen; the nav speaker's waves are separate
@@ -62,7 +63,9 @@ old computer and the project discs, the cat's hollow (footer). Next.js 16, vanil
 - Pill mode (`src/scene/play.ts`, `world.ts`, `art/gear.ts`) is a secret: the only way in is typing `pill.enter()` in
   the browser console (`src/site/pill.ts`; no paw offer at the cat, no nav link). On load the console prints the secret
   commands (`pill.enter()`, `pill.reset()`), never the cheats `pill.points()` / `pill.cases()`. From the console
-  there's no click to take the mouse, so you land on the pause screen ("Keep exploring"). It dissolves you into the meadow
+  there's no click to take the mouse, so you land on the pause screen ("Keep exploring"). Fingers or mouse is
+  `site/hand.ts`, never `(pointer: coarse)` alone (touchscreen laptops report it with a mouse attached, and pill mode
+  took them for phones: no pause screen, no way to move); the hand actually used switches it live. It dissolves you into the meadow
   where the walk starts, free to roam in first person inside an invisible fence (`BOUNDS`); the wood carries on past it into the fog. Done the 2.5D way:
   the camera only turns (yaw), every sprite turns with it (`view.yaw` in `gl.ts`), looking up/down is a projection shear
   so trees never lean. Secrets only there: a lake behind the start, a river down the far left, a pond with a fairy ring.

@@ -1,8 +1,9 @@
 import { forest } from '@/scene/store';
+import { hand } from './hand';
 
 /** Asks for the mouse, so pill mode can look round with it straight away (a click is what allows it). */
 export function lockPointer() {
-  if (window.matchMedia('(pointer: coarse)').matches) return;
+  if (hand.touch()) return;
   const c = document.querySelector<HTMLCanvasElement>('canvas.forest');
   try {
     const r = c?.requestPointerLock() as unknown as Promise<void> | undefined;
@@ -28,7 +29,7 @@ function enterPillMode() {
   }
   if (forest.get().playing) return say('Already there.', "You're in the wood.");
   forest.set({ playing: true, paused: false, full: false });
-  say('Gulp.', window.matchMedia('(pointer: coarse)').matches ? 'Into the wood.' : 'Click "Keep exploring" to look round with the mouse.');
+  say('Gulp.', hand.touch() ? 'Into the wood.' : 'Click "Keep exploring" to look round with the mouse.');
 }
 
 /**

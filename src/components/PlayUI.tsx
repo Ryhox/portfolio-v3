@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import { CASES } from '@/scene/loot';
 import { forest } from '@/scene/store';
+import { hand } from '@/site/hand';
 import CasesPanel from './play/CasesPanel';
 import Hotbar from './play/Hotbar';
 import PauseMenu from './play/PauseMenu';
@@ -25,8 +26,7 @@ function miraLine(met: boolean, points: number) {
 export default function PlayUI() {
   const st = useForest();
   const w = useWallet();
-  const [touch, setTouch] = useState(false);
-  useEffect(() => setTouch(window.matchMedia('(pointer: coarse)').matches), []);
+  const touch = useSyncExternalStore(hand.subscribe, hand.touch, () => false);
   // Esc puts a page away (the pause menu is under it: the mouse can't be taken back on Esc)
   useEffect(() => {
     if (!st.panel) return;

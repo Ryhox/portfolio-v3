@@ -1748,7 +1748,7 @@ export function createForest(o: Opts) {
     applySkins();
     sfx.setVolume(settings.get().volume);
     sfx.play('pill');
-    if (!controls) controls = new Controls(o.canvas, (locked) => playing && forest.set({ paused: !locked }));
+    if (!controls) controls = new Controls(o.canvas, (locked) => playing && forest.set({ paused: !controls!.touch && !locked }));
     controls.attach();
     controls.locked = document.pointerLockElement === o.canvas;
     forest.set({ paused: !controls.touch && !controls.locked });
